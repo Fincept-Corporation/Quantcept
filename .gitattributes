@@ -1,0 +1,10 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Shell scripts
+*.sh text eol=lf
+*.ps1 text eol=crlf
+
+# Binary
+*.gif binary
+*.png binary
