@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
+
+PackageIdentifier: FinceptCorporation.Quantcept
+PackageVersion: 0.1.0
+PackageName: Quantcept
+Publisher: Fincept Corporation
+License: Apache-2.0
+LicenseUrl: https://github.com/Fincept-Corporation/Quantcept/blob/main/LICENSE.md
+ShortDescription: AI-powered finance terminal
+Description: >-
+  Quantcept is an interactive CLI that connects to any LLM API and provides
+  tools for financial analysis including PDF parsing, CSV analysis, calculations,
+  web fetching, and shell access.
+Tags:
+  - ai
+  - cli
+  - finance
+  - terminal
+  - llm
+PackageUrl: https://github.com/Fincept-Corporation/Quantcept
+Installers:
+  - Architecture: x64
+    InstallerType: exe
+    InstallerUrl: https://nodejs.org/dist/v22.15.0/node-v22.15.0-x64.msi
+    InstallerSwitches:
+      Custom: /qn
+    PostInstallBehavior: basedOnExitCode
+    InstallationMetadata:
+      DefaultInstallLocation: "%ProgramFiles%\\Quantcept"
+  - Architecture: arm64
+    InstallerType: exe
+    InstallerUrl: https://nodejs.org/dist/v22.15.0/node-v22.15.0-arm64.msi
+    InstallerSwitches:
+      Custom: /qn
+    PostInstallBehavior: basedOnExitCode
+PackageLocale: en-US
+ManifestType: singleton
+ManifestVersion: 1.6.0
