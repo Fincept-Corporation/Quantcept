@@ -1,4 +1,3 @@
-import type { JSX } from "solid-js"
 import { createContext, createMemo, createSignal, onMount, useContext, type ParentProps } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useBindings, useKeymap, reactiveMatcherFromSignal } from "@opentui/keymap/solid"
@@ -29,6 +28,7 @@ interface CommandContextValue {
   openPalette(): void
   closePalette(): void
   setHostHooks(hooks: CommandHostHooks): void
+  clearHostHooks(hooks: CommandHostHooks): void
   keybindFor(id: string): string | undefined
 }
 
@@ -162,6 +162,13 @@ export function CommandProvider(props: ParentProps) {
     closePalette: () => setPaletteOpen(false),
     setHostHooks: (h) => {
       hostHooks = { ...hostHooks, ...h }
+    },
+    clearHostHooks: (h) => {
+      const next = { ...hostHooks }
+      for (const key of Object.keys(h) as (keyof CommandHostHooks)[]) {
+        if (next[key] === h[key]) delete next[key]
+      }
+      hostHooks = next
     },
     keybindFor,
   }

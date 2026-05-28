@@ -151,10 +151,11 @@ export function Session() {
   }
 
   const commands = useCommands()
-  commands.setHostHooks({
-    submitPrompt: (text) => handleSubmit(text),
+  const hostHooks = {
+    submitPrompt: (text: string) => handleSubmit(text),
     clearMessages: () => setMessages([]),
-  })
+  }
+  commands.setHostHooks(hostHooks)
   const clearCmd: ActionCommand = {
     kind: "action",
     id: "session.clear",
@@ -168,7 +169,10 @@ export function Session() {
     },
   }
   const unregisterClear = commands.register(clearCmd)
-  onCleanup(unregisterClear)
+  onCleanup(() => {
+    unregisterClear()
+    commands.clearHostHooks(hostHooks)
+  })
 
   return (
     <box flexDirection="row" flexGrow={1} minHeight={0}>
