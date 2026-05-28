@@ -58,11 +58,7 @@ export function CommandProvider(props: ParentProps) {
     setFileCmds(cmds)
   })
 
-  const allCommands = createMemo<Command[]>(() => [
-    ...builtinCommands(),
-    ...fileCmds(),
-    ...dynamic,
-  ])
+  const allCommands = createMemo<Command[]>(() => [...builtinCommands(), ...fileCmds(), ...dynamic])
 
   function buildRunContext(args: string, source: DispatchSource): CommandRunContext {
     return {
@@ -118,7 +114,13 @@ export function CommandProvider(props: ParentProps) {
     return {
       commands: [
         ...keymapCommands,
-        { name: COMMAND_PALETTE_COMMAND, run: () => { setPaletteOpen(true); return true } },
+        {
+          name: COMMAND_PALETTE_COMMAND,
+          run: () => {
+            setPaletteOpen(true)
+            return true
+          },
+        },
       ],
       bindings: commandBindings(keyMap),
     }
@@ -158,7 +160,9 @@ export function CommandProvider(props: ParentProps) {
     paletteOpen,
     openPalette: () => setPaletteOpen(true),
     closePalette: () => setPaletteOpen(false),
-    setHostHooks: (h) => { hostHooks = { ...hostHooks, ...h } },
+    setHostHooks: (h) => {
+      hostHooks = { ...hostHooks, ...h }
+    },
     keybindFor,
   }
 

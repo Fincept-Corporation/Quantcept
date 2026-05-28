@@ -32,11 +32,31 @@ export function CommandPalette() {
 
   useKeyboard((e: any) => {
     if (!commands.paletteOpen()) return
-    if (e.name === "escape") { e.preventDefault?.(); close(); return }
-    if (e.name === "up") { e.preventDefault?.(); setSelected((s) => Math.max(0, s - 1)); return }
-    if (e.name === "down") { e.preventDefault?.(); setSelected((s) => Math.min(results().length - 1, s + 1)); return }
-    if (e.name === "return" || e.name === "kpenter") { e.preventDefault?.(); accept(); return }
-    if (e.name === "backspace") { e.preventDefault?.(); setFilter((f) => f.slice(0, -1)); return }
+    if (e.name === "escape") {
+      e.preventDefault?.()
+      close()
+      return
+    }
+    if (e.name === "up") {
+      e.preventDefault?.()
+      setSelected((s) => Math.max(0, s - 1))
+      return
+    }
+    if (e.name === "down") {
+      e.preventDefault?.()
+      setSelected((s) => Math.min(results().length - 1, s + 1))
+      return
+    }
+    if (e.name === "return" || e.name === "kpenter") {
+      e.preventDefault?.()
+      accept()
+      return
+    }
+    if (e.name === "backspace") {
+      e.preventDefault?.()
+      setFilter((f) => f.slice(0, -1))
+      return
+    }
     if (typeof e.sequence === "string" && e.sequence.length === 1 && !e.ctrl && !e.meta) {
       e.preventDefault?.()
       setFilter((f) => f + e.sequence)
@@ -46,19 +66,35 @@ export function CommandPalette() {
   return (
     <Show when={commands.paletteOpen()}>
       <box
-        position="absolute" top={0} left={0} right={0} bottom={0}
-        justifyContent="center" alignItems="center"
-        backgroundColor={theme.background + "cc"} zIndex={950}
+        position="absolute"
+        top={0}
+        left={0}
+        right={0}
+        bottom={0}
+        justifyContent="center"
+        alignItems="center"
+        backgroundColor={theme.background + "cc"}
+        zIndex={950}
       >
         <box
-          backgroundColor={theme.backgroundPanel} borderColor={theme.borderActive} border={true}
-          paddingTop={1} paddingBottom={1} paddingLeft={2} paddingRight={2}
-          minWidth={60} maxWidth="80%" maxHeight="80%" flexDirection="column"
+          backgroundColor={theme.backgroundPanel}
+          borderColor={theme.borderActive}
+          border={true}
+          paddingTop={1}
+          paddingBottom={1}
+          paddingLeft={2}
+          paddingRight={2}
+          minWidth={60}
+          maxWidth="80%"
+          maxHeight="80%"
+          flexDirection="column"
         >
           <box flexDirection="row" gap={1} flexShrink={0}>
             <text fg={theme.accent}>{">"}</text>
             <text fg={theme.text}>{filter() || ""}</text>
-            <Show when={!filter()}><text fg={theme.textMuted}>Search commands…</text></Show>
+            <Show when={!filter()}>
+              <text fg={theme.textMuted}>Search commands…</text>
+            </Show>
           </box>
           <box height={1} flexShrink={0} />
           <box flexDirection="column" flexShrink={1} minHeight={0}>
@@ -68,14 +104,22 @@ export function CommandPalette() {
                   const isSel = () => i() === selected()
                   const kb = () => commands.keybindFor(cmd.id)
                   return (
-                    <box flexDirection="row" justifyContent="space-between" gap={2}
-                      backgroundColor={isSel() ? theme.backgroundElement : undefined}>
+                    <box
+                      flexDirection="row"
+                      justifyContent="space-between"
+                      gap={2}
+                      backgroundColor={isSel() ? theme.backgroundElement : undefined}
+                    >
                       <box flexDirection="row" gap={1}>
                         <text fg={isSel() ? theme.accent : theme.text}>/{cmd.name}</text>
                         <text fg={theme.textMuted}>{cmd.description}</text>
-                        <Show when={cmd.argumentHint}><text fg={theme.textMuted}>{cmd.argumentHint}</text></Show>
+                        <Show when={cmd.argumentHint}>
+                          <text fg={theme.textMuted}>{cmd.argumentHint}</text>
+                        </Show>
                       </box>
-                      <Show when={kb()}><text fg={theme.textMuted}>{kb()}</text></Show>
+                      <Show when={kb()}>
+                        <text fg={theme.textMuted}>{kb()}</text>
+                      </Show>
                     </box>
                   )
                 }}

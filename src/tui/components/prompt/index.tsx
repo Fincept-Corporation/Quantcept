@@ -126,12 +126,23 @@ export function Prompt(props: PromptProps) {
               }}
               onKeyDown={(e: any) => {
                 if (slashResults().length > 0) {
-                  if (e.name === "up") { e.preventDefault(); setSlashSelected((s) => Math.max(0, s - 1)); return }
-                  if (e.name === "down") { e.preventDefault(); setSlashSelected((s) => Math.min(slashResults().length - 1, s + 1)); return }
+                  if (e.name === "up") {
+                    e.preventDefault()
+                    setSlashSelected((s) => Math.max(0, s - 1))
+                    return
+                  }
+                  if (e.name === "down") {
+                    e.preventDefault()
+                    setSlashSelected((s) => Math.min(slashResults().length - 1, s + 1))
+                    return
+                  }
                   if (e.name === "tab") {
                     e.preventDefault()
                     const cmd = slashResults()[slashSelected()]
-                    if (cmd && inputRef) { inputRef.setText(`/${cmd.name} `); setValue(`/${cmd.name} `) }
+                    if (cmd && inputRef) {
+                      inputRef.setText(`/${cmd.name} `)
+                      setValue(`/${cmd.name} `)
+                    }
                     return
                   }
                 }
