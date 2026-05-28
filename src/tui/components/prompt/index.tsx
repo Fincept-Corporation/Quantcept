@@ -119,8 +119,8 @@ export function Prompt(props: PromptProps) {
               maxHeight={6}
               focused={true}
               keyBindings={promptKeyBindings}
-              onContentChange={(val) => {
-                setValue((typeof val === "string" ? val : "") ?? "")
+              onContentChange={() => {
+                setValue(inputRef?.plainText ?? "")
                 setSlashSelected(0)
                 renderer.requestRender()
               }}
