@@ -145,8 +145,24 @@ export function Prompt(props: PromptProps) {
                     e.preventDefault()
                     const cmd = slashResults()[slashSelected()]
                     if (cmd && inputRef) {
-                      inputRef.setText(`/${cmd.name} `)
-                      setValue(`/${cmd.name} `)
+                      const text = `/${cmd.name} `
+                      inputRef.setText(text)
+                      inputRef.setCursor(0, text.length)
+                      setValue(text)
+                      setSlashSelected(0)
+                      renderer.requestRender()
+                    }
+                    return
+                  }
+                  if (e.name === "return" || e.name === "kpenter") {
+                    e.preventDefault()
+                    const cmd = slashResults()[slashSelected()]
+                    if (cmd) {
+                      commands.dispatch(cmd.id, "", "slash")
+                      setValue("")
+                      if (inputRef) inputRef.setText("")
+                      setSlashSelected(0)
+                      renderer.requestRender()
                     }
                     return
                   }
