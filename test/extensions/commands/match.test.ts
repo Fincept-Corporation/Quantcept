@@ -24,6 +24,22 @@ describe("fuzzyMatch", () => {
   test("empty query matches with score 0", () => {
     expect(fuzzyMatch("", "clear")).toEqual({ score: 0 })
   })
+  test("word-boundary matches outscore mid-word matches", () => {
+    const boundary = fuzzyMatch("br", "market-brief") // 'b' starts a word
+    const midword = fuzzyMatch("br", "embargo") // 'b','r' mid-word, with a gap
+    expect(boundary).not.toBeNull()
+    expect(midword).not.toBeNull()
+    expect(boundary!.score).toBeGreaterThan(midword!.score)
+  })
+  test("camelCase boundaries are rewarded", () => {
+    const cc = fuzzyMatch("gp", "getPrompt") // g(start) P(camel boundary)
+    expect(cc).not.toBeNull()
+  })
+  test("consecutive run beats a gapped match of the same chars", () => {
+    const consecutive = fuzzyMatch("the", "theme")
+    const gapped = fuzzyMatch("the", "t-h-e-x")
+    expect(consecutive!.score).toBeGreaterThan(gapped!.score)
+  })
 })
 
 describe("rankCommands", () => {

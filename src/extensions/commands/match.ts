@@ -4,24 +4,56 @@ export interface MatchResult {
   score: number
 }
 
+// fzf-style scoring constants.
+const SCORE_MATCH = 16
+const BONUS_BOUNDARY = 8 // match at a word boundary (start, after separator, camelCase)
+const BONUS_CONSECUTIVE = 8 // match immediately follows the previous match
+const BONUS_FIRST_CHAR = 8 // extra weight when the first query char lands well
+const PENALTY_GAP_START = 3 // first skipped char in a gap
+const PENALTY_GAP_EXTEND = 1 // each subsequent skipped char
+
+const SEP = /[\s\-_:/.]/
+
+function isBoundary(text: string, idx: number): boolean {
+  if (idx === 0) return true
+  const prev = text[idx - 1] ?? ""
+  if (SEP.test(prev)) return true
+  // camelCase boundary: lowercase/digit followed by uppercase
+  const cur = text[idx] ?? ""
+  return /[a-z0-9]/.test(prev) && /[A-Z]/.test(cur)
+}
+
+/**
+ * fzf-style fuzzy score. Greedily matches the query as a subsequence of `text`,
+ * rewarding consecutive runs and word-boundary starts and penalizing gaps.
+ * Returns null when `query` is not a subsequence of `text`.
+ */
 export function fuzzyMatch(query: string, text: string): MatchResult | null {
   if (query.length === 0) return { score: 0 }
   const q = query.toLowerCase()
-  const t = text.toLowerCase()
+  const tl = text.toLowerCase()
+
   let score = 0
   let ti = 0
-  let prevMatchIdx = -2
+  let prevMatchIdx = -1
   for (let qi = 0; qi < q.length; qi++) {
-    const ch = q[qi]!
-    const found = t.indexOf(ch, ti)
+    const found = tl.indexOf(q[qi]!, ti)
     if (found === -1) return null
-    score += 1
-    if (found === prevMatchIdx + 1) score += 3 // contiguous bonus
-    if (found === 0 || /[\s\-_:/]/.test(t[found - 1] ?? "")) score += 2 // word-boundary bonus
+
+    score += SCORE_MATCH
+    if (isBoundary(text, found)) score += qi === 0 ? BONUS_BOUNDARY + BONUS_FIRST_CHAR : BONUS_BOUNDARY
+    if (found === prevMatchIdx + 1) score += BONUS_CONSECUTIVE
+
+    if (prevMatchIdx >= 0) {
+      const gap = found - prevMatchIdx - 1
+      if (gap > 0) score -= PENALTY_GAP_START + (gap - 1) * PENALTY_GAP_EXTEND
+    }
+
     prevMatchIdx = found
     ti = found + 1
   }
-  score += Math.max(0, 5 - (text.length - query.length) * 0.1) // shorter targets rank higher
+  // Prefer shorter targets when scores are otherwise close.
+  score += Math.max(0, 5 - (text.length - query.length) * 0.1)
   return { score }
 }
 
