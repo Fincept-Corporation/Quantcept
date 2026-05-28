@@ -1,0 +1,7 @@
+# Normalize line endings to LF across platforms to keep Biome formatting and
+# diffs consistent between Windows dev and Linux CI.
+* text=auto eol=lf
+
+# Treat the compiled binary and lockfile as-is.
+*.exe binary
+bun.lock text eol=lf

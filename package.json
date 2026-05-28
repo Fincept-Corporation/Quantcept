@@ -1,0 +1,51 @@
+{
+  "name": "quantcept",
+  "version": "0.2.0",
+  "description": "Quantcept — AI-powered finance terminal",
+  "type": "module",
+  "license": "Apache-2.0",
+  "bin": {
+    "quantcept": "./bin/quantcept"
+  },
+  "files": ["bin", "script/postinstall.mjs", "dist"],
+  "keywords": [
+    "finance",
+    "terminal",
+    "ai",
+    "llm",
+    "tui",
+    "cli"
+  ],
+  "homepage": "https://github.com/Fincept-Corporation/Quantcept",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fincept-Corporation/Quantcept.git"
+  },
+  "scripts": {
+    "start": "bun run --conditions=browser ./src/cli/index.ts",
+    "dev": "bun run --conditions=browser ./src/cli/index.ts",
+    "dev:watch": "bun run --conditions=browser --watch ./src/cli/index.ts",
+    "dev:hot": "bun run --conditions=browser --hot ./src/cli/index.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src",
+    "format": "biome format --write src",
+    "test": "bun test",
+    "build": "bun run script/build.ts --single",
+    "postinstall": "node ./script/postinstall.mjs"
+  },
+  "dependencies": {
+    "@opentui/core": "0.2.15",
+    "@opentui/keymap": "0.2.15",
+    "@opentui/solid": "0.2.15",
+    "marked": "18.0.4",
+    "solid-js": "1.9.12",
+    "yargs": "17.7.2",
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.16",
+    "@types/bun": "latest",
+    "@types/yargs": "17.0.33",
+    "typescript": "5.8.3"
+  }
+}

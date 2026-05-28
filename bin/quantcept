@@ -1,0 +1,60 @@
+#!/usr/bin/env node
+import childProcess from "node:child_process"
+import fs from "node:fs"
+import path from "node:path"
+import os from "node:os"
+import { fileURLToPath } from "node:url"
+
+const __filename = fileURLToPath(import.meta.url)
+
+const platformMap = { darwin: "darwin", linux: "linux", win32: "windows" }
+const archMap = { x64: "x64", arm64: "arm64" }
+const platform = platformMap[os.platform()] ?? os.platform()
+const arch = archMap[os.arch()] ?? os.arch()
+const pkgName = `quantcept-${platform}-${arch}`
+const binName = platform === "windows" ? "quantcept.exe" : "quantcept"
+
+function findBinary(startDir) {
+  let current = startDir
+  for (;;) {
+    const candidate = path.join(current, "node_modules", pkgName, "bin", binName)
+    if (fs.existsSync(candidate)) return candidate
+    const parent = path.dirname(current)
+    if (parent === current) return undefined
+    current = parent
+  }
+}
+
+const cached = path.join(path.dirname(fs.realpathSync(__filename)), binName)
+const resolved =
+  process.env.QUANTCEPT_BIN_PATH || (fs.existsSync(cached) ? cached : findBinary(path.dirname(__filename)))
+
+if (!resolved) {
+  console.error(`Could not find the quantcept binary for your platform (${pkgName}).`)
+  console.error(`Try reinstalling without --ignore-scripts, or install "${pkgName}" manually.`)
+  process.exit(1)
+}
+
+const child = childProcess.spawn(resolved, process.argv.slice(2), { stdio: "inherit" })
+const signals = ["SIGINT", "SIGTERM", "SIGHUP"]
+const forwarders = {}
+for (const sig of signals) {
+  forwarders[sig] = () => {
+    try {
+      child.kill(sig)
+    } catch {}
+  }
+  process.on(sig, forwarders[sig])
+}
+child.on("exit", (code, signal) => {
+  for (const sig of signals) process.removeListener(sig, forwarders[sig])
+  if (signal) {
+    process.kill(process.pid, signal)
+    return
+  }
+  process.exit(typeof code === "number" ? code : 0)
+})
+child.on("error", (err) => {
+  console.error(err.message)
+  process.exit(1)
+})

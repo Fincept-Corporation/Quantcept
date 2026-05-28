@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["bun-types"],
+    "paths": {
+      "@core/*": ["./src/core/*"],
+      "@ext/*": ["./src/extensions/*"],
+      "@tui/*": ["./src/tui/*"],
+      "@shared/*": ["./src/shared/*"],
+      "@cli/*": ["./src/cli/*"],
+      "@/*": ["./src/*"]
+    },
+    "customConditions": ["browser"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}
