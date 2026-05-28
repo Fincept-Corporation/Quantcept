@@ -11,7 +11,7 @@ export function themeCommand(): ActionCommand {
     run(args, ctx) {
       const arg = args.trim().toLowerCase()
       if (arg === "") {
-        ctx.toast("Usage: /theme <name> or /theme dark|light")
+        ctx.openThemePicker()
         return
       }
       if (arg === "dark" || arg === "light") {

@@ -12,6 +12,8 @@ export interface CommandRunContext {
   navigate(route: { type: "home" } | { type: "session"; sessionID: string; initialMessage?: string }): void
   setThemeMode(mode: "dark" | "light"): void
   setTheme(name: string): boolean
+  themeNames(): string[]
+  openThemePicker(): void
   showDialog(render: () => JSX.Element): void
   closeDialog(): void
   toast(message: string): void

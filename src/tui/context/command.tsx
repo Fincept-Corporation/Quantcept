@@ -14,6 +14,7 @@ import { discoverFileCommands } from "@ext/commands/loader"
 import { rankCommands } from "@ext/commands/match"
 import type { Command, CommandRunContext, DispatchSource } from "@ext/commands/types"
 import { userConfigDir, projectConfigDir } from "@core/config/paths"
+import { ThemePicker } from "@tui/components/theme-picker"
 
 export interface CommandHostHooks {
   submitPrompt?: (text: string) => void
@@ -77,6 +78,11 @@ export function CommandProvider(props: ParentProps) {
         const ok = theme.set(name)
         renderer.requestRender()
         return ok
+      },
+      themeNames: () => Object.keys(theme.all()),
+      openThemePicker: () => {
+        dialog.replace(() => <ThemePicker names={Object.keys(theme.all())} onClose={() => dialog.clear()} />)
+        renderer.requestRender()
       },
       showDialog: (render) => dialog.replace(render),
       closeDialog: () => dialog.clear(),
