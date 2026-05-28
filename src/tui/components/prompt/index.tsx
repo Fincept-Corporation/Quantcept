@@ -1,7 +1,10 @@
 import { type BorderCharacters, defaultTextareaKeyBindings, type TextareaRenderable } from "@opentui/core"
 import { useExit } from "@tui/context/exit"
 import { useTheme } from "@tui/context/theme"
-import { createSignal } from "solid-js"
+import { createMemo, createSignal } from "solid-js"
+import { useCommands } from "@tui/context/command"
+import { SlashPopover } from "./slash-popover"
+import type { Command } from "@ext/commands/types"
 
 const EmptyBorder: BorderCharacters = {
   topLeft: "",
@@ -40,6 +43,13 @@ export function Prompt(props: PromptProps) {
   const { theme } = useTheme()
   const exit = useExit()
   const [value, setValue] = createSignal("")
+  const commands = useCommands()
+  const [slashSelected, setSlashSelected] = createSignal(0)
+  const slashResults = createMemo<Command[]>(() => {
+    const m = /^\/(\S*)$/.exec(value().trim())
+    if (m === null) return []
+    return commands.query(m[1]!).slice(0, 6)
+  })
   let inputRef: TextareaRenderable | undefined
 
   const placeholderText = () => {
@@ -54,11 +64,22 @@ export function Prompt(props: PromptProps) {
     submitting = true
     try {
       const text = inputRef?.plainText?.trim() ?? value().trim()
-      if (text) {
-        props.onSubmit?.(text)
-        setValue("")
-        if (inputRef) inputRef.setText("")
+      if (!text) return
+      const slash = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text)
+      if (slash) {
+        const name = slash[1]!
+        const args = slash[2] ?? ""
+        const match = commands.query(name).find((c) => c.name === name || c.aliases?.includes(name))
+        if (match) {
+          commands.dispatch(match.id, args, "slash")
+          setValue("")
+          if (inputRef) inputRef.setText("")
+          return
+        }
       }
+      props.onSubmit?.(text)
+      setValue("")
+      if (inputRef) inputRef.setText("")
     } finally {
       submitting = false
     }
@@ -67,6 +88,7 @@ export function Prompt(props: PromptProps) {
   return (
     <>
       <box width="100%">
+        <SlashPopover results={slashResults()} selected={slashSelected()} />
         <box
           width="100%"
           border={["left"]}
@@ -97,11 +119,22 @@ export function Prompt(props: PromptProps) {
               keyBindings={promptKeyBindings}
               onContentChange={(val) => {
                 setValue((typeof val === "string" ? val : "") ?? "")
+                setSlashSelected(0)
               }}
               onSubmit={() => {
                 setTimeout(() => submit(), 0)
               }}
               onKeyDown={(e: any) => {
+                if (slashResults().length > 0) {
+                  if (e.name === "up") { e.preventDefault(); setSlashSelected((s) => Math.max(0, s - 1)); return }
+                  if (e.name === "down") { e.preventDefault(); setSlashSelected((s) => Math.min(slashResults().length - 1, s + 1)); return }
+                  if (e.name === "tab") {
+                    e.preventDefault()
+                    const cmd = slashResults()[slashSelected()]
+                    if (cmd && inputRef) { inputRef.setText(`/${cmd.name} `); setValue(`/${cmd.name} `) }
+                    return
+                  }
+                }
                 if (e.key === "c" && e.ctrl) {
                   e.preventDefault()
                   if (value() === "") {
