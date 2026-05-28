@@ -69,8 +69,15 @@ export function CommandProvider(props: ParentProps) {
       submitPrompt: (text) => hostHooks.submitPrompt?.(text),
       clearMessages: () => hostHooks.clearMessages?.(),
       navigate: (r) => route.navigate(r),
-      setThemeMode: (m) => theme.setMode(m),
-      setTheme: (name) => theme.set(name),
+      setThemeMode: (m) => {
+        theme.setMode(m)
+        renderer.requestRender()
+      },
+      setTheme: (name) => {
+        const ok = theme.set(name)
+        renderer.requestRender()
+        return ok
+      },
       showDialog: (render) => dialog.replace(render),
       closeDialog: () => dialog.clear(),
       toast: (message) => toast.show({ message, variant: "info" }),

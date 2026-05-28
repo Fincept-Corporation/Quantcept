@@ -158,7 +158,9 @@ export function Prompt(props: PromptProps) {
                     e.preventDefault()
                     const cmd = slashResults()[slashSelected()]
                     if (cmd) {
-                      commands.dispatch(cmd.id, "", "slash")
+                      // Carry any args the user already typed after the command name.
+                      const typed = /^\/\S+\s+([\s\S]*)$/.exec(value().trim())
+                      commands.dispatch(cmd.id, typed?.[1] ?? "", "slash")
                       setValue("")
                       if (inputRef) inputRef.setText("")
                       setSlashSelected(0)
