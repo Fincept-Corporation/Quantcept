@@ -118,4 +118,16 @@ describe("discoverFileCommands", () => {
     expect(skill!.source).toBe("skill")
     expect(skill!.description).toBe("CRLF skill")
   })
+
+  test("parses a command .md with a multi-line folded description", async () => {
+    await writeCmd(
+      tmp,
+      "folded.md",
+      "---\ndescription:\n  First part of desc\n  second part of desc\n---\nBody for $ARGUMENTS",
+    )
+    const cmds = await discoverFileCommands({ userDir: path.join(tmp, "nouser", ".quantcept"), projectDir: path.join(tmp, ".quantcept") })
+    const folded = cmds.find((c) => c.name === "folded")
+    expect(folded).toBeDefined()
+    expect(folded!.description).toBe("First part of desc second part of desc")
+  })
 })
