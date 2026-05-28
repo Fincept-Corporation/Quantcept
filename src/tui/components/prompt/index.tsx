@@ -52,6 +52,17 @@ export function Prompt(props: PromptProps) {
     if (m === null) return []
     return commands.query(m[1]!).slice(0, 6)
   })
+  // After "/<command> <prefix>", suggest the command's declared argument choices.
+  const argSuggestions = createMemo<{ commandName: string; choices: string[] } | null>(() => {
+    const m = /^\/(\S+)\s+(\S*)$/.exec(value())
+    if (m === null) return null
+    const name = m[1]!
+    const prefix = m[2]!.toLowerCase()
+    const cmd = commands.query(name).find((c) => c.name === name || c.aliases?.includes(name))
+    if (!cmd?.argChoices) return null
+    const choices = cmd.argChoices.filter((c) => c.toLowerCase().startsWith(prefix))
+    return choices.length > 0 ? { commandName: name, choices } : null
+  })
   let inputRef: TextareaRenderable | undefined
 
   const placeholderText = () => {
@@ -90,7 +101,7 @@ export function Prompt(props: PromptProps) {
   return (
     <>
       <box width="100%">
-        <SlashPopover results={slashResults()} selected={slashSelected()} />
+        <SlashPopover results={slashResults()} argItems={argSuggestions()?.choices} selected={slashSelected()} />
         <box
           width="100%"
           border={["left"]}
@@ -128,6 +139,36 @@ export function Prompt(props: PromptProps) {
                 setTimeout(() => submit(), 0)
               }}
               onKeyDown={(e: any) => {
+                const args = argSuggestions()
+                if (args) {
+                  if (e.name === "up") {
+                    e.preventDefault()
+                    setSlashSelected((s) => Math.max(0, s - 1))
+                    renderer.requestRender()
+                    return
+                  }
+                  if (e.name === "down") {
+                    e.preventDefault()
+                    setSlashSelected((s) => Math.min(args.choices.length - 1, s + 1))
+                    renderer.requestRender()
+                    return
+                  }
+                  if (e.name === "tab" || e.name === "return" || e.name === "kpenter") {
+                    e.preventDefault()
+                    const choice = args.choices[slashSelected()]
+                    const cmd = commands
+                      .query(args.commandName)
+                      .find((c) => c.name === args.commandName || c.aliases?.includes(args.commandName))
+                    if (choice && cmd) {
+                      commands.dispatch(cmd.id, choice, "slash")
+                      setValue("")
+                      if (inputRef) inputRef.setText("")
+                      setSlashSelected(0)
+                      renderer.requestRender()
+                    }
+                    return
+                  }
+                }
                 if (slashResults().length > 0) {
                   if (e.name === "up") {
                     e.preventDefault()

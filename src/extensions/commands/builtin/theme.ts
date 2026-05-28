@@ -6,7 +6,8 @@ export function themeCommand(): ActionCommand {
     name: "theme",
     description: "Switch theme (name) or mode (dark|light)",
     category: "View",
-    argumentHint: "[dracula|nord|catppuccin|tokyonight|quantcept|dark|light]",
+    argumentHint: "[name|dark|light]",
+    argChoices: ["dark", "light", "quantcept", "dracula", "nord", "catppuccin", "tokyonight"],
     source: "builtin",
     run(args, ctx) {
       const arg = args.trim().toLowerCase()

@@ -28,6 +28,8 @@ export interface CommandBase {
   category?: string
   aliases?: string[]
   argumentHint?: string
+  /** Suggested first-argument values, shown in the slash popover after a space. */
+  argChoices?: string[]
   keybind?: string
   source: CommandSource
   isEnabled?: () => boolean
