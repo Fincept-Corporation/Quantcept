@@ -5,7 +5,8 @@ import { loadSkillFromDir } from "@ext/skills/load"
 import { substituteArgs } from "./arguments"
 import type { Command, CommandSource, PromptCommand } from "./types"
 
-function parseFrontmatter(content: string): { data: Record<string, string>; body: string } {
+function parseFrontmatter(raw: string): { data: Record<string, string>; body: string } {
+  const content = raw.replace(/\r\n/g, "\n")
   const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(content)
   if (!match) return { data: {}, body: content }
   const data: Record<string, string> = {}
@@ -15,6 +16,11 @@ function parseFrontmatter(content: string): { data: Record<string, string>; body
     data[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
   }
   return { data, body: match[2] ?? "" }
+}
+
+function briefError(error: unknown): string {
+  const msg = error instanceof Error ? error.message : String(error)
+  return msg.replace(/\s+/g, " ").trim().slice(0, 120)
 }
 
 function makePromptCommand(name: string, raw: string, source: CommandSource): PromptCommand {
@@ -49,7 +55,7 @@ async function loadDir(dir: string, source: CommandSource): Promise<PromptComman
       const raw = await fs.readFile(path.join(dir, entry), "utf8")
       out.push(makePromptCommand(name, raw, source))
     } catch (error) {
-      logger.warn(`Skipping command file ${entry}: ${error instanceof Error ? error.message : String(error)}`)
+      logger.warn(`Skipping command file ${entry}: ${briefError(error)}`)
     }
   }
   return out
@@ -81,7 +87,7 @@ async function loadSkillsDir(dir: string): Promise<PromptCommand[]> {
         },
       })
     } catch (error) {
-      logger.warn(`Skipping skill dir ${entry}: ${error instanceof Error ? error.message : String(error)}`)
+      logger.warn(`Skipping skill dir ${entry}: ${briefError(error)}`)
     }
   }
   return out

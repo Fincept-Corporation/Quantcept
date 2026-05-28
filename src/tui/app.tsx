@@ -15,6 +15,7 @@ import { CommandPalette } from "@tui/components/command-palette"
 import { CommandProvider } from "@tui/context/command"
 import { DialogProvider } from "@tui/ui/dialog"
 import { ToastProvider } from "@tui/ui/toast"
+import { resetLogFloor, setLogFloor } from "@shared/logger"
 import { ErrorBoundary, Match, Switch } from "solid-js"
 
 export function rendererConfig(): CliRendererConfig {
@@ -47,6 +48,9 @@ type AppInput = {
 export function startApp(input: AppInput): AppHandle {
   const unguard = win32InstallCtrlCGuard()
   win32DisableProcessedInput()
+  // The TUI owns the screen; keep non-error logs off stderr so they don't
+  // bleed onto the rendered output. Restored when the renderer is torn down.
+  setLogFloor("error")
 
   const renderer = input.renderer
   const keymap = createDefaultOpenTuiKeymap(renderer)
@@ -61,6 +65,7 @@ export function startApp(input: AppInput): AppHandle {
       renderer.setTerminalTitle("")
       renderer.destroy()
     }
+    resetLogFloor()
     win32FlushInputBuffer()
     unguard?.()
     if (reason) {
@@ -73,6 +78,7 @@ export function startApp(input: AppInput): AppHandle {
   })
 
   renderer.once("destroy", () => {
+    resetLogFloor()
     win32FlushInputBuffer()
     unguard?.()
     resolveExited()

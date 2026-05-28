@@ -3,7 +3,8 @@ import fs from "fs/promises"
 import path from "path"
 import { type LoadedSkill, SkillFrontmatterSchema } from "./manifest"
 
-function parseFrontmatter(content: string): { data: Record<string, unknown>; body: string } {
+function parseFrontmatter(raw: string): { data: Record<string, unknown>; body: string } {
+  const content = raw.replace(/\r\n/g, "\n")
   const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(content)
   if (!match) return { data: {}, body: content }
   const data: Record<string, unknown> = {}

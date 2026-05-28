@@ -99,4 +99,23 @@ describe("discoverFileCommands", () => {
     const cmds = await discoverFileCommands({ userDir: path.join(tmp, "nouser", ".quantcept"), projectDir: path.join(tmp, ".quantcept") })
     expect(cmds.find((c) => c.name === "x")).toBeDefined()
   })
+
+  test("parses CRLF (\\r\\n) command files", async () => {
+    await writeCmd(tmp, "brief.md", "---\r\ndescription: CRLF brief\r\nargument-hint: <ticker>\r\n---\r\nBrief on $ARGUMENTS\r\n")
+    const cmds = await discoverFileCommands({ userDir: path.join(tmp, "nouser", ".quantcept"), projectDir: path.join(tmp, ".quantcept") })
+    const brief = cmds.find((c) => c.name === "brief")
+    expect(brief).toBeDefined()
+    expect(brief!.description).toBe("CRLF brief")
+    expect(brief!.argumentHint).toBe("<ticker>")
+    if (brief!.kind === "prompt") expect(await brief!.getPrompt("NIFTY", {} as any)).toBe("Brief on NIFTY")
+  })
+
+  test("parses CRLF (\\r\\n) skill files", async () => {
+    await writeSkill(tmp, "crlf-skill", "---\r\nname: crlf-skill\r\ndescription: CRLF skill\r\n---\r\nDo $ARGUMENTS\r\n")
+    const cmds = await discoverFileCommands({ userDir: path.join(tmp, "nouser", ".quantcept"), projectDir: path.join(tmp, ".quantcept") })
+    const skill = cmds.find((c) => c.name === "crlf-skill")
+    expect(skill).toBeDefined()
+    expect(skill!.source).toBe("skill")
+    expect(skill!.description).toBe("CRLF skill")
+  })
 })
