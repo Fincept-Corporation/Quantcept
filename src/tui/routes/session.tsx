@@ -1,13 +1,15 @@
 import { createTextAttributes, RGBA, SyntaxStyle } from "@opentui/core"
 import { useRenderer, useTerminalDimensions } from "@opentui/solid"
-import { batch, createMemo, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
+import { batch, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 
 const BOLD = createTextAttributes({ bold: true })
 
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { Prompt } from "@tui/components/prompt"
+import { useCommands } from "@tui/context/command"
 import { useExit } from "@tui/context/exit"
+import type { ActionCommand } from "@ext/commands/types"
 import { type SessionRoute, useRoute } from "@tui/context/route"
 import { useTheme } from "@tui/context/theme"
 import { chat, SYSTEM_PROMPT } from "@/llm"
@@ -147,6 +149,26 @@ export function Session() {
       renderer.requestRender()
     }
   }
+
+  const commands = useCommands()
+  commands.setHostHooks({
+    submitPrompt: (text) => handleSubmit(text),
+    clearMessages: () => setMessages([]),
+  })
+  const clearCmd: ActionCommand = {
+    kind: "action",
+    id: "session.clear",
+    name: "clear",
+    description: "Clear the current conversation",
+    category: "Session",
+    source: "builtin",
+    keybind: "ctrl+l",
+    run(_args, ctx) {
+      ctx.clearMessages()
+    },
+  }
+  const unregisterClear = commands.register(clearCmd)
+  onCleanup(unregisterClear)
 
   return (
     <box flexDirection="row" flexGrow={1} minHeight={0}>

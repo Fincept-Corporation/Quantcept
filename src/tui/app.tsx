@@ -11,6 +11,8 @@ import { QuantceptKeymapProvider } from "@tui/keymap"
 import { win32DisableProcessedInput, win32FlushInputBuffer, win32InstallCtrlCGuard } from "@tui/platform/win32"
 import { Home } from "@tui/routes/home"
 import { Session } from "@tui/routes/session"
+import { CommandPalette } from "@tui/components/command-palette"
+import { CommandProvider } from "@tui/context/command"
 import { DialogProvider } from "@tui/ui/dialog"
 import { ToastProvider } from "@tui/ui/toast"
 import { ErrorBoundary, Match, Switch } from "solid-js"
@@ -111,7 +113,9 @@ async function mountApp(input: AppInput & { keymap: ReturnType<typeof createDefa
                     <ThemeProvider mode={mode}>
                       <ToastProvider>
                         <DialogProvider>
-                          <App />
+                          <CommandProvider>
+                            <App />
+                          </CommandProvider>
                         </DialogProvider>
                       </ToastProvider>
                     </ThemeProvider>
@@ -142,9 +146,6 @@ function App() {
     if (e.ctrl && e.name === "q") {
       void exit()
     }
-    if (e.ctrl && e.name === "n") {
-      route.navigate({ type: "home" })
-    }
   })
 
   return (
@@ -164,6 +165,7 @@ function App() {
           </Match>
         </Switch>
       </box>
+      <CommandPalette />
     </box>
   )
 }
