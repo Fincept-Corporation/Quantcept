@@ -1,5 +1,5 @@
 import { createMemo, createSignal, For, Show, createEffect } from "solid-js"
-import { useKeyboard } from "@opentui/solid"
+import { useKeyboard, useRenderer } from "@opentui/solid"
 import { useTheme } from "@tui/context/theme"
 import { useCommands } from "@tui/context/command"
 import type { Command } from "@ext/commands/types"
@@ -7,6 +7,7 @@ import type { Command } from "@ext/commands/types"
 export function CommandPalette() {
   const { theme } = useTheme()
   const commands = useCommands()
+  const renderer = useRenderer()
   const [filter, setFilter] = createSignal("")
   const [selected, setSelected] = createSignal(0)
 
@@ -32,6 +33,7 @@ export function CommandPalette() {
 
   useKeyboard((e: any) => {
     if (!commands.paletteOpen()) return
+    renderer.requestRender()
     if (e.name === "escape") {
       e.preventDefault?.()
       close()

@@ -1,4 +1,5 @@
 import { type BorderCharacters, defaultTextareaKeyBindings, type TextareaRenderable } from "@opentui/core"
+import { useRenderer } from "@opentui/solid"
 import { useExit } from "@tui/context/exit"
 import { useTheme } from "@tui/context/theme"
 import { createMemo, createSignal } from "solid-js"
@@ -42,6 +43,7 @@ interface PromptProps {
 export function Prompt(props: PromptProps) {
   const { theme } = useTheme()
   const exit = useExit()
+  const renderer = useRenderer()
   const [value, setValue] = createSignal("")
   const commands = useCommands()
   const [slashSelected, setSlashSelected] = createSignal(0)
@@ -120,6 +122,7 @@ export function Prompt(props: PromptProps) {
               onContentChange={(val) => {
                 setValue((typeof val === "string" ? val : "") ?? "")
                 setSlashSelected(0)
+                renderer.requestRender()
               }}
               onSubmit={() => {
                 setTimeout(() => submit(), 0)
@@ -129,11 +132,13 @@ export function Prompt(props: PromptProps) {
                   if (e.name === "up") {
                     e.preventDefault()
                     setSlashSelected((s) => Math.max(0, s - 1))
+                    renderer.requestRender()
                     return
                   }
                   if (e.name === "down") {
                     e.preventDefault()
                     setSlashSelected((s) => Math.min(slashResults().length - 1, s + 1))
+                    renderer.requestRender()
                     return
                   }
                   if (e.name === "tab") {

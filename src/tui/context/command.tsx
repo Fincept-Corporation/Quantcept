@@ -2,6 +2,7 @@ import { createContext, createMemo, createSignal, onMount, useContext, type Pare
 import { createStore } from "solid-js/store"
 import { useBindings, useKeymap, reactiveMatcherFromSignal } from "@opentui/keymap/solid"
 import { commandBindings } from "@opentui/keymap/extras"
+import { useRenderer } from "@opentui/solid"
 import { useRoute } from "@tui/context/route"
 import { useTheme } from "@tui/context/theme"
 import { useDialog } from "@tui/ui/dialog"
@@ -47,6 +48,7 @@ export function CommandProvider(props: ParentProps) {
   const toast = useToast()
   const exit = useExit()
   const keymap = useKeymap()
+  const renderer = useRenderer()
 
   const [dynamic, setDynamic] = createStore<Command[]>([])
   const [fileCmds, setFileCmds] = createSignal<Command[]>([])
@@ -118,6 +120,7 @@ export function CommandProvider(props: ParentProps) {
           name: COMMAND_PALETTE_COMMAND,
           run: () => {
             setPaletteOpen(true)
+            renderer.requestRender()
             return true
           },
         },
