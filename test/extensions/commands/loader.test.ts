@@ -18,6 +18,12 @@ async function writeCmd(root: string, file: string, content: string) {
   await fs.writeFile(path.join(full, file), content, "utf8")
 }
 
+async function writeSkill(root: string, skillName: string, content: string) {
+  const dir = path.join(root, ".quantcept", "skills", skillName)
+  await fs.mkdir(dir, { recursive: true })
+  await fs.writeFile(path.join(dir, "SKILL.md"), content, "utf8")
+}
+
 describe("discoverFileCommands", () => {
   test("loads a project .md command with frontmatter as a prompt command", async () => {
     await writeCmd(tmp, "brief.md", "---\ndescription: Quick brief\nargument-hint: <ticker>\n---\nBrief on $ARGUMENTS")
@@ -60,5 +66,37 @@ describe("discoverFileCommands", () => {
     const brief = cmds.find((c) => c.name === "brief")!
     if (brief.kind !== "prompt") throw new Error("expected prompt")
     expect(await brief.getPrompt("NIFTY", {} as any)).toBe("Brief on NIFTY")
+  })
+
+  test("discovers a project skill dir as a prompt command with source 'skill'", async () => {
+    await writeSkill(tmp, "market-brief", "---\nname: market-brief\ndescription: Produce a market brief\n---\nYou are producing a brief on $ARGUMENTS.")
+    const cmds = await discoverFileCommands({ userDir: path.join(tmp, "nouser", ".quantcept"), projectDir: path.join(tmp, ".quantcept") })
+    const skill = cmds.find((c) => c.name === "market-brief")
+    expect(skill).toBeDefined()
+    expect(skill!.kind).toBe("prompt")
+    expect(skill!.source).toBe("skill")
+    expect(skill!.description).toBe("Produce a market brief")
+  })
+
+  test("skill getPrompt substitutes args", async () => {
+    await writeSkill(tmp, "market-brief", "---\nname: market-brief\ndescription: d\n---\nBrief on $ARGUMENTS")
+    const cmds = await discoverFileCommands({ userDir: path.join(tmp, "nouser", ".quantcept"), projectDir: path.join(tmp, ".quantcept") })
+    const skill = cmds.find((c) => c.name === "market-brief")!
+    if (skill.kind !== "prompt") throw new Error("expected prompt")
+    expect(await skill.getPrompt("NIFTY", {} as any)).toBe("Brief on NIFTY")
+  })
+
+  test("invalid skill manifest is skipped, does not throw", async () => {
+    await writeSkill(tmp, "good", "---\nname: good\ndescription: ok\n---\nbody")
+    await writeSkill(tmp, "bad", "no frontmatter here")
+    const cmds = await discoverFileCommands({ userDir: path.join(tmp, "nouser", ".quantcept"), projectDir: path.join(tmp, ".quantcept") })
+    expect(cmds.find((c) => c.name === "good")).toBeDefined()
+    expect(cmds.find((c) => c.name === "bad")).toBeUndefined()
+  })
+
+  test("no skills dir is fine (commands still load)", async () => {
+    await writeCmd(tmp, "x.md", "---\ndescription: d\n---\nbody")
+    const cmds = await discoverFileCommands({ userDir: path.join(tmp, "nouser", ".quantcept"), projectDir: path.join(tmp, ".quantcept") })
+    expect(cmds.find((c) => c.name === "x")).toBeDefined()
   })
 })
