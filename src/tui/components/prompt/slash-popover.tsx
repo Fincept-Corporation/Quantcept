@@ -2,6 +2,11 @@ import { For, Show } from "solid-js"
 import { useTheme } from "@tui/context/theme"
 import type { Command } from "@ext/commands/types"
 
+function oneLine(s: string, max: number): string {
+  const flat = s.replace(/\s+/g, " ").trim()
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
+}
+
 export function SlashPopover(props: { results: Command[]; selected: number }) {
   const { theme } = useTheme()
   return (
@@ -13,20 +18,16 @@ export function SlashPopover(props: { results: Command[]; selected: number }) {
         border={true}
         paddingLeft={1}
         paddingRight={1}
-        maxHeight={8}
       >
         <For each={props.results}>
           {(cmd, i) => (
-            <box
-              flexDirection="row"
-              gap={1}
-              backgroundColor={i() === props.selected ? theme.backgroundElement : undefined}
-            >
-              <text fg={i() === props.selected ? theme.accent : theme.text}>/{cmd.name}</text>
-              <text fg={theme.textMuted}>{cmd.description}</text>
-              <Show when={cmd.argumentHint}>
-                <text fg={theme.textMuted}>{cmd.argumentHint}</text>
-              </Show>
+            <box flexDirection="row" backgroundColor={i() === props.selected ? theme.backgroundElement : undefined}>
+              <box width={24} flexShrink={0}>
+                <text fg={i() === props.selected ? theme.accent : theme.text}>{oneLine(`/${cmd.name}`, 24)}</text>
+              </box>
+              <box flexGrow={1} flexShrink={1}>
+                <text fg={theme.textMuted}>{oneLine(cmd.description, 60)}</text>
+              </box>
             </box>
           )}
         </For>

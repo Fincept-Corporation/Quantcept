@@ -41,6 +41,15 @@ function bestFieldScore(query: string, command: Command): number | null {
     const weighted = m.score * (1 + weight)
     if (best === null || weighted > best) best = weighted
   }
+  if (best === null) return null
+
+  // Strongly prioritize the obvious hits so a query like "theme" ranks the
+  // "theme" command above scattered subsequence matches (flpbalada-theme, …).
+  const q = query.toLowerCase()
+  const candidates = [command.name, ...(command.aliases ?? [])].map((s) => s.toLowerCase())
+  if (candidates.some((c) => c === q)) best += 1000
+  else if (candidates.some((c) => c.startsWith(q))) best += 500
+  else if (command.name.toLowerCase().includes(q)) best += 100
   return best
 }
 
