@@ -22,22 +22,34 @@ export function Logo() {
   const [revealed, setRevealed] = createSignal(0)
   const [done, setDone] = createSignal(false)
 
-  let interval: ReturnType<typeof setInterval>
-  onMount(() => {
+  // Replay the typewriter reveal every REPLAY_DELAY_MS after each cycle finishes.
+  const REPLAY_DELAY_MS = 6000
+  let interval: ReturnType<typeof setInterval> | undefined
+  let replayTimer: ReturnType<typeof setTimeout> | undefined
+
+  const startReveal = () => {
+    setDone(false)
+    setRevealed(0)
     interval = setInterval(() => {
       setRevealed((r) => {
         const next = r + 2
         if (next >= MAX_CHARS) {
           clearInterval(interval)
           setDone(true)
+          replayTimer = setTimeout(startReveal, REPLAY_DELAY_MS)
           return MAX_CHARS
         }
         renderer.requestRender()
         return next
       })
     }, 12)
+  }
+
+  onMount(startReveal)
+  onCleanup(() => {
+    clearInterval(interval)
+    clearTimeout(replayTimer)
   })
-  onCleanup(() => clearInterval(interval))
 
   const visibleLines = createMemo(() => {
     const r = revealed()
