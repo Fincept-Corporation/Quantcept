@@ -1,11 +1,11 @@
+import type { Command } from "@ext/commands/types"
 import { type BorderCharacters, defaultTextareaKeyBindings, type TextareaRenderable } from "@opentui/core"
 import { useRenderer } from "@opentui/solid"
+import { useCommands } from "@tui/context/command"
 import { useExit } from "@tui/context/exit"
 import { useTheme } from "@tui/context/theme"
 import { createMemo, createSignal } from "solid-js"
-import { useCommands } from "@tui/context/command"
 import { SlashPopover } from "./slash-popover"
-import type { Command } from "@ext/commands/types"
 
 const EmptyBorder: BorderCharacters = {
   topLeft: "",

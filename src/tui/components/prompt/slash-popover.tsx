@@ -1,6 +1,6 @@
-import { For, Show } from "solid-js"
-import { useTheme } from "@tui/context/theme"
 import type { Command } from "@ext/commands/types"
+import { useTheme } from "@tui/context/theme"
+import { For, Show } from "solid-js"
 
 function oneLine(s: string, max: number): string {
   const flat = s.replace(/\s+/g, " ").trim()

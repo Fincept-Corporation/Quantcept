@@ -1,7 +1,7 @@
+import { loadSkillFromDir } from "@ext/skills/load"
+import { logger } from "@shared/logger"
 import fs from "fs/promises"
 import path from "path"
-import { logger } from "@shared/logger"
-import { loadSkillFromDir } from "@ext/skills/load"
 import { substituteArgs } from "./arguments"
 import type { Command, CommandSource, PromptCommand } from "./types"
 

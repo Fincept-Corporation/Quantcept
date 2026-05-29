@@ -5,11 +5,11 @@ import { createStore, produce } from "solid-js/store"
 
 const BOLD = createTextAttributes({ bold: true })
 
+import type { ActionCommand } from "@ext/commands/types"
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { Prompt } from "@tui/components/prompt"
 import { useCommands } from "@tui/context/command"
 import { useExit } from "@tui/context/exit"
-import type { ActionCommand } from "@ext/commands/types"
 import { type SessionRoute, useRoute } from "@tui/context/route"
 import { useTheme } from "@tui/context/theme"
 import { chat, SYSTEM_PROMPT } from "@/llm"

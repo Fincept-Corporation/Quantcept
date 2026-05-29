@@ -1,8 +1,8 @@
-import { createMemo, createSignal, For, Show, createEffect } from "solid-js"
-import { useKeyboard, useRenderer } from "@opentui/solid"
-import { useTheme } from "@tui/context/theme"
-import { useCommands } from "@tui/context/command"
 import type { Command } from "@ext/commands/types"
+import { useKeyboard, useRenderer } from "@opentui/solid"
+import { useCommands } from "@tui/context/command"
+import { useTheme } from "@tui/context/theme"
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 
 export function CommandPalette() {
   const { theme } = useTheme()
