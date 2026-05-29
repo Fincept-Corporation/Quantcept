@@ -27,6 +27,7 @@ import { ToolMessage } from "@tui/components/tool-message"
 import { useCommands } from "@tui/context/command"
 import { useExit } from "@tui/context/exit"
 import { type SessionRoute, useRoute } from "@tui/context/route"
+import { useStorage } from "@tui/context/storage"
 import { type ThemeColors, useTheme } from "@tui/context/theme"
 import { buildSyntaxStyle } from "@tui/themes/syntax-style"
 import { useDialog } from "@tui/ui/dialog"
@@ -59,6 +60,7 @@ function formatTime(ts: number): string {
 export function Session() {
   const { theme } = useTheme()
   const buddy = useBuddy()
+  const storage = useStorage()
   const config = loadConfig()
   const provider = createProvider(config.provider)
   const registry = new ToolRegistry()
@@ -121,23 +123,46 @@ export function Session() {
   }
 
   function addMessage(role: "user" | "assistant", content: string) {
+    const ts = Date.now()
     setMessages(
       produce((msgs) => {
         msgs.push({
-          id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          id: `msg-${ts}-${Math.random().toString(36).slice(2, 6)}`,
           role,
           content,
-          timestamp: Date.now(),
+          timestamp: ts,
         })
       }),
     )
+    if (content.length > 0) storage.appendEvent(sessionData().sessionID, { t: "msg", role, content, ts })
   }
 
   onMount(() => {
-    const initial = sessionData().initialMessage
-    if (initial) {
-      handleSubmit(initial)
+    const id = sessionData().sessionID
+    const cwd = process.cwd()
+    const existing = storage.loadSession(id)
+    if (existing.length > 0) {
+      // Resume: replay the transcript into the message store.
+      setMessages(
+        produce((msgs) => {
+          for (const r of existing) {
+            if (r.t === "msg") {
+              msgs.push({
+                id: `msg-${msgs.length}-${r.ts}`,
+                role: r.role,
+                content: r.content,
+                timestamp: r.ts,
+              })
+            }
+          }
+        }),
+      )
+    } else {
+      // New session: write the meta line.
+      storage.createSession({ id, cwd })
     }
+    const initial = sessionData().initialMessage
+    if (initial) handleSubmit(initial)
   })
 
   const renderer = useRenderer()
@@ -217,6 +242,14 @@ export function Session() {
                   }
                 }),
               )
+              storage.appendEvent(sessionData().sessionID, {
+                t: "tool",
+                tool: e.tool,
+                status: "done",
+                output: e.output,
+                isError: e.isError,
+                ts: Date.now(),
+              })
             }
             renderer.requestRender()
           },
@@ -240,6 +273,16 @@ export function Session() {
       setTokensPrev((p) => p + result.totalTokens)
       setTokensLive(0)
       buddy.react("success")
+      const last = messages[messages.length - 1]
+      if (last && last.role === "assistant" && last.content.length > 0) {
+        storage.appendEvent(sessionData().sessionID, {
+          t: "msg",
+          role: "assistant",
+          content: last.content,
+          ts: Date.now(),
+        })
+      }
+      storage.touch(sessionData().sessionID, { msgCount: messages.length, tokens: totalTokens() })
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error)
       setMessages(
