@@ -15,6 +15,7 @@ export interface Tool<Input extends z.ZodType = z.ZodType, Output = unknown> {
   name: string
   description: string
   inputSchema: Input
+  inputJSONSchema?: Record<string, unknown>
   isReadOnly(input: z.infer<Input>): boolean
   isDestructive(input: z.infer<Input>): boolean
   call(input: z.infer<Input>, ctx: ToolContext): Promise<ToolResult<Output>>
