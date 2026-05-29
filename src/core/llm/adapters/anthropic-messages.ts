@@ -16,6 +16,53 @@ function toWireContent(content: string | ContentBlock[]): unknown {
   })
 }
 
+interface ToolUseAccum {
+  id: string
+  name: string
+  inputJson: string
+}
+
+export function assembleStreamEvents(
+  events: Array<Record<string, any>>,
+  onChunk: (text: string) => void,
+): { text: string; blocks: ContentBlock[]; inputTokens: number; outputTokens: number; stopReason: string } {
+  let text = ""
+  let inputTokens = 0
+  let outputTokens = 0
+  let stopReason = "end_turn"
+  const tools = new Map<number, ToolUseAccum>()
+
+  for (const event of events) {
+    if (event.type === "message_start" && event.message?.usage) {
+      inputTokens = event.message.usage.input_tokens ?? 0
+    } else if (event.type === "content_block_start" && event.content_block?.type === "tool_use") {
+      const existing = tools.get(event.index)
+      tools.set(event.index, {
+        id: event.content_block.id,
+        name: event.content_block.name,
+        inputJson: existing?.inputJson ?? "",
+      })
+    } else if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+      text += event.delta.text
+      onChunk(event.delta.text)
+    } else if (event.type === "content_block_delta" && event.delta?.type === "input_json_delta") {
+      const acc = tools.get(event.index)
+      if (acc) acc.inputJson += event.delta.partial_json ?? ""
+    } else if (event.type === "message_delta") {
+      if (event.delta?.stop_reason) stopReason = event.delta.stop_reason
+      if (event.usage) {
+        outputTokens = event.usage.output_tokens ?? outputTokens
+        inputTokens = event.usage.input_tokens ?? inputTokens
+      }
+    }
+  }
+
+  const blocks: ContentBlock[] = [...tools.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, t]) => ({ type: "tool_use", id: t.id, name: t.name, input: t.inputJson ? JSON.parse(t.inputJson) : {} }))
+  return { text, blocks, inputTokens, outputTokens, stopReason }
+}
+
 export class AnthropicMessagesAdapter implements Provider {
   readonly id = "anthropic-messages"
   constructor(private readonly config: ProviderConfig) {
@@ -36,7 +83,9 @@ export class AnthropicMessagesAdapter implements Provider {
       messages: req.messages.map((m) => ({ role: m.role, content: toWireContent(m.content) })),
       ...(req.system ? { system: req.system } : {}),
       ...(req.stream ? { stream: true } : {}),
-      ...(req.tools ? { tools: req.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema })) } : {}),
+      ...(req.tools
+        ? { tools: req.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema })) }
+        : {}),
     }
     return { url, headers, body }
   }
@@ -61,8 +110,12 @@ export class AnthropicMessagesAdapter implements Provider {
       .filter((b: any) => b.type === "text")
       .map((b: any) => b.text ?? "")
       .join("")
+    const blocks: ContentBlock[] = (result.content ?? [])
+      .filter((b: any) => b.type === "tool_use")
+      .map((b: any) => ({ type: "tool_use", id: b.id, name: b.name, input: b.input ?? {} }))
     return {
       text,
+      blocks: blocks.length ? blocks : undefined,
       inputTokens: result.usage?.input_tokens ?? 0,
       outputTokens: result.usage?.output_tokens ?? 0,
       stopReason: result.stop_reason ?? "end_turn",
@@ -74,10 +127,7 @@ export class AnthropicMessagesAdapter implements Provider {
     if (!reader) throw new ProviderError("No response body")
     const decoder = new TextDecoder()
     let buffer = ""
-    let fullText = ""
-    let inputTokens = 0
-    let outputTokens = 0
-    let stopReason = "end_turn"
+    const events: Array<Record<string, any>> = []
     for (;;) {
       const { done, value } = await reader.read()
       if (done) break
@@ -90,25 +140,24 @@ export class AnthropicMessagesAdapter implements Provider {
         if (data === "[DONE]") continue
         try {
           const event = JSON.parse(data)
+          events.push(event)
           if (event.type === "message_start" && event.message?.usage) {
-            inputTokens = event.message.usage.input_tokens ?? 0
-            handlers.onTokens?.(inputTokens, outputTokens)
-          } else if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
-            fullText += event.delta.text
-            handlers.onChunk?.(event.delta.text)
-          } else if (event.type === "message_delta") {
-            if (event.delta?.stop_reason) stopReason = event.delta.stop_reason
-            if (event.usage) {
-              outputTokens = event.usage.output_tokens ?? outputTokens
-              inputTokens = event.usage.input_tokens ?? inputTokens
-              handlers.onTokens?.(inputTokens, outputTokens)
-            }
+            handlers.onTokens?.(event.message.usage.input_tokens ?? 0, 0)
+          } else if (event.type === "message_delta" && event.usage) {
+            handlers.onTokens?.(event.usage.input_tokens ?? 0, event.usage.output_tokens ?? 0)
           }
         } catch {
           // skip malformed SSE lines
         }
       }
     }
-    return { text: fullText, inputTokens, outputTokens, stopReason }
+    const r = assembleStreamEvents(events, (t) => handlers.onChunk?.(t))
+    return {
+      text: r.text,
+      blocks: r.blocks.length ? r.blocks : undefined,
+      inputTokens: r.inputTokens,
+      outputTokens: r.outputTokens,
+      stopReason: r.stopReason,
+    }
   }
 }

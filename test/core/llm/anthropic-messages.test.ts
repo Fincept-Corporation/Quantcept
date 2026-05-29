@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { AnthropicMessagesAdapter } from "@core/llm/adapters/anthropic-messages"
+import { AnthropicMessagesAdapter, assembleStreamEvents } from "@core/llm/adapters/anthropic-messages"
 
 describe("anthropic-messages adapter", () => {
   test("buildRequest produces /v1/messages payload with headers", () => {
@@ -33,5 +33,19 @@ describe("anthropic-messages adapter", () => {
     expect(msgs[0].content).toEqual([{ type: "tool_use", id: "t1", name: "calc", input: { a: 1 } }])
     expect(msgs[1].content).toEqual([{ type: "tool_result", tool_use_id: "t1", content: JSON.stringify({ r: 2 }), is_error: false }])
     expect((body.tools as any[])[0]).toEqual({ name: "calc", description: "calc", input_schema: { type: "object" } })
+  })
+
+  test("assembleStreamEvents buffers input_json_delta and assigns (not appends) tool name", () => {
+    const events = [
+      { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "t1", name: "calc" } },
+      { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"a":' } },
+      { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: "1}" } },
+      { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "t1", name: "calc" } },
+      { type: "content_block_stop", index: 0 },
+      { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 5 } },
+    ]
+    const r = assembleStreamEvents(events, () => {})
+    expect(r.stopReason).toBe("tool_use")
+    expect(r.blocks).toEqual([{ type: "tool_use", id: "t1", name: "calc", input: { a: 1 } }])
   })
 })
