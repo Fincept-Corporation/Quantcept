@@ -9,6 +9,9 @@ export class OpenAIChatAdapter implements Provider {
   }
 
   buildRequest(req: ChatRequest) {
+    if (req.messages.some((m) => Array.isArray(m.content))) {
+      throw new ProviderError("openai-chat does not support tool content yet")
+    }
     const url = `${this.config.baseUrl}/chat/completions`
     const headers: Record<string, string> = {
       "Content-Type": "application/json",

@@ -11,4 +11,13 @@ describe("openai-chat adapter", () => {
     expect(body.messages[0]).toEqual({ role: "system", content: "sys" })
     expect(body.messages[1]).toEqual({ role: "user", content: "hi" })
   })
+
+  test("buildRequest throws on block content (tools not supported yet)", () => {
+    const a = new OpenAIChatAdapter({ id: "openai-chat", model: "m", baseUrl: "https://x", apiKey: "k", maxTokens: 100, temperature: 0.5 })
+    expect(() =>
+      a.buildRequest({
+        messages: [{ role: "assistant", content: [{ type: "text", text: "hi" }] }],
+      }),
+    ).toThrow("openai-chat does not support tool content")
+  })
 })
