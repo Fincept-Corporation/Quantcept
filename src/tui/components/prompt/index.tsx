@@ -5,6 +5,7 @@ import { useCommands } from "@tui/context/command"
 import { useExit } from "@tui/context/exit"
 import { useTheme } from "@tui/context/theme"
 import { createMemo, createSignal, type JSX, onCleanup, onMount } from "solid-js"
+import { type HistoryState, historyNext, historyPrev } from "./history"
 import { SlashPopover } from "./slash-popover"
 
 const EmptyBorder: BorderCharacters = {
@@ -88,6 +89,26 @@ export function Prompt(props: PromptProps) {
   })
   let inputRef: TextareaRenderable | undefined
 
+  // Submitted-prompt history for ↑/↓ recall (oldest → newest). `histState`
+  // tracks where in history the user currently is (null = editing live draft).
+  const [history, setHistory] = createSignal<string[]>([])
+  let histState: HistoryState = { index: null }
+
+  // Apply a recalled history entry to the input and move the cursor to the end.
+  // `applyingHistory` suppresses the onContentChange index-reset for this
+  // programmatic edit, so navigation keeps its place.
+  let applyingHistory = false
+  function applyHistory(text: string) {
+    applyingHistory = true
+    setValue(text)
+    if (inputRef) {
+      inputRef.setText(text)
+      inputRef.setCursor(0, text.length)
+    }
+    applyingHistory = false
+    renderer.requestRender()
+  }
+
   const placeholderText = () => {
     const phrases = props.placeholders?.normal ?? [props.placeholder ?? "Ask anything..."]
     const base = phrases[phraseTick() % phrases.length]
@@ -101,6 +122,10 @@ export function Prompt(props: PromptProps) {
     try {
       const text = inputRef?.plainText?.trim() ?? value().trim()
       if (!text) return
+      // Record in history (skip if identical to the most recent entry) and reset
+      // the navigation cursor back to "live draft".
+      setHistory((h) => (h[h.length - 1] === text ? h : [...h, text]))
+      histState = { index: null }
       const slash = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text)
       if (slash) {
         const name = slash[1]!
@@ -156,6 +181,9 @@ export function Prompt(props: PromptProps) {
               onContentChange={() => {
                 setValue(inputRef?.plainText ?? "")
                 setSlashSelected(0)
+                // User edited the text → leave history navigation (next ↑ starts
+                // fresh from the newest). Skipped for programmatic recalls.
+                if (!applyingHistory) histState = { index: null }
                 renderer.requestRender()
               }}
               onSubmit={() => {
@@ -230,6 +258,25 @@ export function Prompt(props: PromptProps) {
                       setSlashSelected(0)
                       renderer.requestRender()
                     }
+                    return
+                  }
+                }
+                // No popover open → ↑/↓ navigate submitted-command history.
+                if (e.name === "up") {
+                  const r = historyPrev(history(), histState)
+                  if (r.value !== null) {
+                    e.preventDefault()
+                    histState = r.state
+                    applyHistory(r.value)
+                    return
+                  }
+                }
+                if (e.name === "down") {
+                  const r = historyNext(history(), histState)
+                  if (r.value !== null) {
+                    e.preventDefault()
+                    histState = r.state
+                    applyHistory(r.value)
                     return
                   }
                 }
