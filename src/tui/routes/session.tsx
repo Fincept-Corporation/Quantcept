@@ -5,6 +5,9 @@ import { createStore, produce } from "solid-js/store"
 
 const BOLD = createTextAttributes({ bold: true })
 
+import { SYSTEM_PROMPT } from "@core/agent/system"
+import { loadConfig } from "@core/config/load"
+import { createProvider } from "@core/llm/provider"
 import type { ActionCommand } from "@ext/commands/types"
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { Prompt } from "@tui/components/prompt"
@@ -12,9 +15,6 @@ import { useCommands } from "@tui/context/command"
 import { useExit } from "@tui/context/exit"
 import { type SessionRoute, useRoute } from "@tui/context/route"
 import { useTheme } from "@tui/context/theme"
-import { createProvider } from "@core/llm/provider"
-import { loadConfig } from "@core/config/load"
-import { SYSTEM_PROMPT } from "@core/agent/system"
 import { Sidebar } from "./sidebar"
 
 interface Message {
