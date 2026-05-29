@@ -48,24 +48,24 @@
       "light": "lightPurple"
     },
     "accent": {
-      "dark": "darkOrange",
-      "light": "lightOrange"
+      "dark": "darkCyan",
+      "light": "lightCyan"
     },
     "error": {
       "dark": "darkRed",
       "light": "lightRed"
     },
     "warning": {
-      "dark": "darkOrange",
-      "light": "lightOrange"
+      "dark": "darkYellow",
+      "light": "lightYellow"
     },
     "success": {
       "dark": "darkGreen",
       "light": "lightGreen"
     },
     "info": {
-      "dark": "darkStep9",
-      "light": "lightStep9"
+      "dark": "darkCyan",
+      "light": "lightCyan"
     },
     "text": {
       "dark": "darkStep12",
@@ -88,16 +88,16 @@
       "light": "lightStep3"
     },
     "border": {
-      "dark": "darkStep7",
-      "light": "lightStep7"
-    },
-    "borderActive": {
-      "dark": "darkStep8",
-      "light": "lightStep8"
-    },
-    "borderSubtle": {
       "dark": "darkStep6",
       "light": "lightStep6"
+    },
+    "borderActive": {
+      "dark": "darkStep9",
+      "light": "lightStep9"
+    },
+    "borderSubtle": {
+      "dark": "darkStep5",
+      "light": "lightStep5"
     },
     "diffAdded": {
       "dark": "#4fd6be",
