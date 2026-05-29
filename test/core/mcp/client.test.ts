@@ -34,4 +34,21 @@ describe("McpClient", () => {
     expect(r.output).toBe("a\nb")
     expect(r.isError).toBe(true)
   })
+
+  test("closes the client if connect fails (no leak)", async () => {
+    let closed = false
+    const failing = {
+      connect: async () => {
+        throw new Error("connect boom")
+      },
+      listTools: async () => ({ tools: [] }),
+      callTool: async () => ({ content: [], isError: false }),
+      close: async () => {
+        closed = true
+      },
+    }
+    const c = new McpClient("fs", { command: "x", args: [], enabled: true, timeout: 1000 }, () => failing as any)
+    await expect(c.connect()).rejects.toThrow("connect boom")
+    expect(closed).toBe(true)
+  })
 })

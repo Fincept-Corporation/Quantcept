@@ -33,7 +33,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 export class McpClient {
   private client?: LowLevelClient
   constructor(
-    private readonly serverName: string,
+    _serverName: string,
     private readonly config: McpStdioServer,
     private readonly makeClient: () => LowLevelClient = () => {
       const c = new Client({ name: "quantcept", version: "0.0.0" })
@@ -49,7 +49,12 @@ export class McpClient {
       env: this.config.env,
       stderr: "pipe",
     })
-    await withTimeout(client.connect(transport), this.config.timeout, "connect")
+    try {
+      await withTimeout(client.connect(transport), this.config.timeout, "connect")
+    } catch (e) {
+      await client.close().catch(() => {})
+      throw e
+    }
     this.client = client
   }
 
