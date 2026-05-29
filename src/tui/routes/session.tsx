@@ -1,3 +1,4 @@
+import path from "node:path"
 import { createTextAttributes, RGBA, type SyntaxStyle } from "@opentui/core"
 import { useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { batch, createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
@@ -5,9 +6,11 @@ import { createStore, produce } from "solid-js/store"
 
 const BOLD = createTextAttributes({ bold: true })
 
+import { loadAgents } from "@core/agent/agents"
 import type { AgentEvent } from "@core/agent/events"
 import { runAgentTurn } from "@core/agent/loop"
 import { SYSTEM_PROMPT } from "@core/agent/system"
+import { createTaskTool } from "@core/agent/task-tool"
 import { loadConfig } from "@core/config/load"
 import { createProvider } from "@core/llm/provider"
 import { McpManager } from "@core/mcp/manager"
@@ -90,6 +93,21 @@ export function Session() {
     }
   })
   onCleanup(() => void mcp.stop())
+  const taskAgentsDir = path.join(import.meta.dir, "../../extensions/agents/builtin")
+  onMount(async () => {
+    if (registry.get("task")) return
+    const agents = await loadAgents(taskAgentsDir)
+    registry.register(
+      createTaskTool({
+        provider,
+        baseRegistry: registry,
+        rules: config.permissions.rules,
+        mode: config.permissions.defaultMode,
+        agents,
+        maxDepth: 1,
+      }),
+    )
+  })
   const dialog = useDialog()
 
   async function askViaDialog(tool: Tool, input: unknown): Promise<PermissionDecision> {
