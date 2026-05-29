@@ -2,9 +2,11 @@ import { type CliRenderer, type CliRendererConfig, createCliRenderer } from "@op
 import { createDefaultOpenTuiKeymap } from "@opentui/keymap/opentui"
 import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { resetLogFloor, setLogFloor } from "@shared/logger"
+import { BuddyProvider, useBuddy } from "@tui/buddy/BuddyContext"
+import { buddyCommands } from "@tui/buddy/buddy.commands"
 import { CommandPalette } from "@tui/components/command-palette"
 import { type Args, ArgsProvider } from "@tui/context/args"
-import { CommandProvider } from "@tui/context/command"
+import { CommandProvider, useCommands } from "@tui/context/command"
 import { createExit, type Exit, ExitProvider, useExit } from "@tui/context/exit"
 import { KVProvider } from "@tui/context/kv"
 import { RouteProvider, useRoute } from "@tui/context/route"
@@ -16,7 +18,7 @@ import { Home } from "@tui/routes/home"
 import { Session } from "@tui/routes/session"
 import { DialogProvider } from "@tui/ui/dialog"
 import { ToastProvider } from "@tui/ui/toast"
-import { ErrorBoundary, Match, Switch } from "solid-js"
+import { ErrorBoundary, Match, onCleanup, Switch } from "solid-js"
 
 export function rendererConfig(): CliRendererConfig {
   return {
@@ -120,7 +122,9 @@ async function mountApp(input: AppInput & { keymap: ReturnType<typeof createDefa
                       <ToastProvider>
                         <DialogProvider>
                           <CommandProvider>
-                            <App />
+                            <BuddyProvider>
+                              <App />
+                            </BuddyProvider>
                           </CommandProvider>
                         </DialogProvider>
                       </ToastProvider>
@@ -142,6 +146,13 @@ function App() {
   const { theme } = useTheme()
   const renderer = useRenderer()
   const exit = useExit()
+
+  const buddy = useBuddy()
+  const commands = useCommands()
+  const unregister = buddyCommands(buddy).map((c) => commands.register(c))
+  onCleanup(() => {
+    for (const u of unregister) u()
+  })
 
   renderer.setTerminalTitle("Quantcept")
 
