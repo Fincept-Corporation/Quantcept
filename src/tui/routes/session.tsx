@@ -16,6 +16,7 @@ import { EditTool } from "@core/tools/builtin/EditTool"
 import { GlobTool } from "@core/tools/builtin/GlobTool"
 import { GrepTool } from "@core/tools/builtin/GrepTool"
 import { ReadTool } from "@core/tools/builtin/ReadTool"
+import { ShellTool } from "@core/tools/builtin/ShellTool"
 import { WriteTool } from "@core/tools/builtin/WriteTool"
 import { ToolRegistry } from "@core/tools/registry"
 import type { Tool } from "@core/tools/Tool"
@@ -72,6 +73,7 @@ export function Session() {
   registry.register(GrepTool)
   registry.register(WriteTool)
   registry.register(EditTool)
+  registry.register(ShellTool)
   const mcp = new McpManager()
   onMount(async () => {
     try {
