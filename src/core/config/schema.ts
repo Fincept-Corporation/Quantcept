@@ -1,4 +1,5 @@
 import { z } from "zod/v4"
+import { McpConfigSchema } from "@core/mcp/config"
 
 export const ProviderConfigSchema = z.object({
   id: z.enum(["anthropic-messages", "openai-chat"]),
@@ -16,6 +17,7 @@ export const ConfigSchema = z.object({
       defaultMode: z.enum(["ask", "allow", "deny"]).default("ask"),
     })
     .default({ defaultMode: "ask" }),
+  mcp: McpConfigSchema,
 })
 
 export type Config = z.infer<typeof ConfigSchema>
@@ -30,4 +32,5 @@ export const defaultConfig: Config = {
     temperature: 0.7,
   },
   permissions: { defaultMode: "ask" },
+  mcp: { servers: {} },
 }

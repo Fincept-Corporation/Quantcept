@@ -15,3 +15,15 @@ describe("ConfigSchema", () => {
     expect(() => ConfigSchema.parse(defaultConfig)).not.toThrow()
   })
 })
+
+describe("ConfigSchema mcp field", () => {
+  test("defaults mcp to empty servers", () => {
+    const c = ConfigSchema.parse({
+      provider: { id: "anthropic-messages", model: "m", baseUrl: "https://x" },
+    })
+    expect(c.mcp).toEqual({ servers: {} })
+  })
+  test("defaultConfig includes an empty mcp", () => {
+    expect(defaultConfig.mcp).toEqual({ servers: {} })
+  })
+})
