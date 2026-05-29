@@ -4,7 +4,6 @@ import { Logo } from "@tui/components/logo"
 import { Prompt } from "@tui/components/prompt"
 import { useRoute } from "@tui/context/route"
 import { useTheme } from "@tui/context/theme"
-import { marketStatus } from "@tui/finance/market"
 import { createMemo, createSignal, onCleanup, onMount } from "solid-js"
 
 const placeholder = {
@@ -49,10 +48,6 @@ export function Home() {
   onCleanup(() => clearInterval(timer))
 
   const subtitle = createMemo(() => SUBTITLES[Math.floor(tick() / 5) % SUBTITLES.length]!)
-  const market = createMemo(() => {
-    tick()
-    return marketStatus()
-  })
 
   return (
     <box flexGrow={1} alignItems="center" justifyContent="center" paddingLeft={2} paddingRight={2}>
@@ -90,9 +85,8 @@ export function Home() {
       <box height={1} minHeight={0} flexShrink={1} />
       <box flexShrink={0} width="100%" maxWidth={promptMaxWidth()} flexDirection="row" justifyContent="center">
         <text fg={theme.textMuted}>
-          <span style={{ fg: market().open ? theme.success : theme.textMuted }}>{"● "}</span>
-          <span style={{ fg: market().open ? theme.success : theme.textMuted }}>{market().label}</span>
-          {" · "}Quantcept v0.1.0{" · "}Ctrl+Q exit{" · "}Enter submit
+          <span style={{ fg: theme.accent }}>{"● "}</span>Quantcept v0.1.0{" · "}
+          Ctrl+Q exit{" · "}Enter submit{" · "}Shift+Enter newline
         </text>
       </box>
     </box>

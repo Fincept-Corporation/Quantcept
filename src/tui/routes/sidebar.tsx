@@ -1,7 +1,7 @@
 import { useRenderer } from "@opentui/solid"
 import { BuddySprite } from "@tui/buddy/BuddySprite"
 import { useTheme } from "@tui/context/theme"
-import { formatElapsed, marketStatus } from "@tui/finance/market"
+import { formatElapsed } from "@tui/finance/time"
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 
 interface SidebarMessage {
@@ -94,10 +94,6 @@ export function Sidebar(props: SidebarProps) {
     tick()
     return props.startedAt ? formatElapsed(Date.now() - props.startedAt) : "—"
   })
-  const market = createMemo(() => {
-    tick()
-    return marketStatus()
-  })
   const tip = createMemo(() => DESK_TIPS[Math.floor(tick() / 6) % DESK_TIPS.length]!)
 
   return (
@@ -116,14 +112,6 @@ export function Sidebar(props: SidebarProps) {
           {/* Buddy at top */}
           <box alignItems="center" flexShrink={0}>
             <BuddySprite compact />
-          </box>
-
-          {/* Market status strip */}
-          <box flexDirection="row" flexShrink={0}>
-            <text fg={market().open ? theme.success : theme.textMuted}>
-              {"● "}
-              {market().label}
-            </text>
           </box>
 
           <box height={1} flexShrink={0}>
