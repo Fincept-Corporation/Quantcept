@@ -177,10 +177,12 @@ export function Session() {
                   })
                 }),
               )
+              // Fresh bubble for any post-tool assistant text; stays empty (shows "Thinking…") if the model emits none.
               addMessage("assistant", "")
             } else if (e.type === "tool_end") {
               setMessages(
                 produce((msgs) => {
+                  // Assumes one running row per tool name (single tool per turn); revisit if concurrent same-named tools are added.
                   for (let i = msgs.length - 1; i >= 0; i--) {
                     if (msgs[i].role === "tool" && msgs[i].toolName === e.tool && msgs[i].toolStatus === "running") {
                       msgs[i].toolStatus = "done"
@@ -215,6 +217,19 @@ export function Session() {
       setTokensLive(0)
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error)
+      setMessages(
+        produce((msgs) => {
+          const last = msgs[msgs.length - 1]
+          if (!last || last.role !== "assistant") {
+            msgs.push({
+              id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              role: "assistant",
+              content: "",
+              timestamp: Date.now(),
+            })
+          }
+        }),
+      )
       updateLastAssistantMessage(`Error: ${errMsg}`)
     } finally {
       setLoading(false)
