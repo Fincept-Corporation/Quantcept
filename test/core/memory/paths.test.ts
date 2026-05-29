@@ -19,6 +19,7 @@ describe("memory paths", () => {
     expect(slugify("Portfolio Holdings!")).toBe("portfolio-holdings")
     expect(slugify("  My  Risk Prefs  ")).toBe("my-risk-prefs")
     expect(slugify("Portfolio Holdings!")).toBe(slugify("portfolio   holdings"))
+    expect(slugify("!!! @@@")).toBe("memory") // all-punctuation falls back, never ""
   })
   test("global scope dirs/files", () => {
     expect(memoryDir("global")).toBe(join(tmp, "data", "memory", "global"))

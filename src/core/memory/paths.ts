@@ -3,12 +3,13 @@ import { dataDir } from "@core/storage/paths"
 
 export type MemoryScope = "global" | "project"
 
-/** Title → stable filesystem slug. */
+/** Title → stable filesystem slug. Falls back to "memory" for all-punctuation titles. */
 export function slugify(title: string): string {
-  return title
+  const slug = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
+  return slug || "memory"
 }
 
 /** Directory for a memory scope. `project` requires a projectHash. */
