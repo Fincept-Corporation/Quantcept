@@ -12,6 +12,11 @@ import { createProvider } from "@core/llm/provider"
 import { McpManager } from "@core/mcp/manager"
 import type { PermissionDecision } from "@core/permissions/schema"
 import { CalculatorTool } from "@core/tools/builtin/CalculatorTool"
+import { EditTool } from "@core/tools/builtin/EditTool"
+import { GlobTool } from "@core/tools/builtin/GlobTool"
+import { GrepTool } from "@core/tools/builtin/GrepTool"
+import { ReadTool } from "@core/tools/builtin/ReadTool"
+import { WriteTool } from "@core/tools/builtin/WriteTool"
 import { ToolRegistry } from "@core/tools/registry"
 import type { Tool } from "@core/tools/Tool"
 import type { ActionCommand } from "@ext/commands/types"
@@ -58,6 +63,11 @@ export function Session() {
   const provider = createProvider(config.provider)
   const registry = new ToolRegistry()
   registry.register(CalculatorTool)
+  registry.register(ReadTool)
+  registry.register(GlobTool)
+  registry.register(GrepTool)
+  registry.register(WriteTool)
+  registry.register(EditTool)
   const mcp = new McpManager()
   onMount(async () => {
     try {
