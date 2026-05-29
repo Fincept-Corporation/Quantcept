@@ -127,3 +127,58 @@ test("no patterns + no rules → existing boolean behavior (regression)", async 
   expect(asked).toBe(true)
   expect(r.output).toBe("ran")
 })
+
+test("all-or-ask: an unmatched sibling pattern forces ask (no smuggling)", async () => {
+  let asked = false
+  const t = buildTool({
+    name: "shell",
+    description: "",
+    inputSchema: z.object({ command: z.string() }),
+    isDestructive: () => true,
+    permissionPatterns: () => ["git status", "rm"],
+    async call() {
+      return { output: "ran" }
+    },
+  })
+  const r = await executeTool(t, { command: "x" }, {
+    mode: "allow",
+    cwd: "/",
+    abort: new AbortController().signal,
+    ask: async () => {
+      asked = true
+      return "deny"
+    },
+    rules: [{ permission: "shell", pattern: "git *", action: "allow" }],
+  })
+  expect(asked).toBe(true)
+  expect(r.isError).toBe(true)
+})
+
+test("all-allow patterns run without asking", async () => {
+  let asked = false
+  const t = buildTool({
+    name: "shell",
+    description: "",
+    inputSchema: z.object({ command: z.string() }),
+    isDestructive: () => true,
+    permissionPatterns: () => ["git status", "rm"],
+    async call() {
+      return { output: "ran" }
+    },
+  })
+  const r = await executeTool(t, { command: "x" }, {
+    mode: "ask",
+    cwd: "/",
+    abort: new AbortController().signal,
+    ask: async () => {
+      asked = true
+      return "allow"
+    },
+    rules: [
+      { permission: "shell", pattern: "git *", action: "allow" },
+      { permission: "shell", pattern: "rm*", action: "allow" },
+    ],
+  })
+  expect(asked).toBe(false)
+  expect(r.output).toBe("ran")
+})

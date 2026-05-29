@@ -32,14 +32,19 @@ export async function executeTool(tool: Tool, rawInput: unknown, ctx: ExecutorCo
   const patterns = tool.permissionPatterns?.(input) ?? []
   const rules = ctx.rules ?? []
   let ruleDecision: PermissionDecision | undefined
-  for (const p of patterns) {
-    const d = evaluate(tool.name, p, rules)
-    if (d === "deny") {
-      ruleDecision = "deny"
-      break
+  if (patterns.length > 0) {
+    // All-or-ask: any deny → deny; any unmatched (undefined) or ask → ask; only all-allow → allow.
+    let sawDeny = false
+    let sawUnresolved = false
+    for (const p of patterns) {
+      const d = evaluate(tool.name, p, rules)
+      if (d === "deny") {
+        sawDeny = true
+        break
+      }
+      if (d === undefined || d === "ask") sawUnresolved = true
     }
-    if (d === "ask") ruleDecision = ruleDecision === undefined || ruleDecision === "allow" ? "ask" : ruleDecision
-    else if (d === "allow" && ruleDecision === undefined) ruleDecision = "allow"
+    ruleDecision = sawDeny ? "deny" : sawUnresolved ? "ask" : "allow"
   }
   const decision: PermissionDecision =
     ruleDecision ??
