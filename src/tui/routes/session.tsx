@@ -1,4 +1,3 @@
-import path from "node:path"
 import { createTextAttributes, RGBA, type SyntaxStyle } from "@opentui/core"
 import { useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { batch, createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
@@ -6,7 +5,7 @@ import { createStore, produce } from "solid-js/store"
 
 const BOLD = createTextAttributes({ bold: true })
 
-import { loadAgents } from "@core/agent/agents"
+import type { LoadedAgent } from "@core/agent/agent-manifest"
 import type { AgentEvent } from "@core/agent/events"
 import { runAgentTurn } from "@core/agent/loop"
 import { SYSTEM_PROMPT } from "@core/agent/system"
@@ -42,6 +41,7 @@ import type { ScrollBoxRenderable } from "@opentui/core"
 import { useBuddy } from "@tui/buddy/BuddyContext"
 import { Prompt } from "@tui/components/prompt"
 import { ToolMessage } from "@tui/components/tool-message"
+import { useAgents } from "@tui/context/agents"
 import { useCommands } from "@tui/context/command"
 import { useExit } from "@tui/context/exit"
 import { type SessionRoute, useRoute } from "@tui/context/route"
@@ -83,8 +83,13 @@ export function Session() {
   const storage = useStorage()
   const snapshot = useSnapshot()
   const skills = useSkills()
+  const agents = useAgents()
+  const [activeAgent, setActiveAgent] = createSignal<LoadedAgent | undefined>(undefined)
   const config = loadConfig()
-  const provider = createProvider(config.provider)
+  const activeProvider = () => {
+    const model = activeAgent()?.model ?? config.provider.model
+    return createProvider({ ...config.provider, model })
+  }
   const registry = new ToolRegistry()
   registry.register(CalculatorTool)
   registry.register(ReadTool)
@@ -109,17 +114,16 @@ export function Session() {
     }
   })
   onCleanup(() => void mcp.stop())
-  const taskAgentsDir = path.join(import.meta.dir, "../../extensions/agents/builtin")
-  onMount(async () => {
+  onMount(() => {
     if (registry.get("task")) return
-    const agents = await loadAgents(taskAgentsDir)
+    const agentMap = new Map(agents.all().map((a) => [a.name, a]))
     registry.register(
       createTaskTool({
-        provider,
+        provider: activeProvider(),
         baseRegistry: registry,
         rules: config.permissions.rules,
         mode: config.permissions.defaultMode,
-        agents,
+        agents: agentMap,
         maxDepth: 1,
       }),
     )
@@ -244,6 +248,8 @@ export function Session() {
   }
 
   const baseSystem = () => {
+    const agent = activeAgent()
+    if (agent) return agent.systemPrompt
     const parts = [SYSTEM_PROMPT]
     const mem = memorySystemBlock(readIndex("global"), readIndex("project", projectHash(process.cwd())))
     if (mem) parts.push(mem)
@@ -309,7 +315,7 @@ export function Session() {
     try {
       const result = await runAgentTurn(
         {
-          provider,
+          provider: activeProvider(),
           registry: opts.toolRegistry,
           messages: history,
           system: opts.system,
@@ -520,6 +526,40 @@ export function Session() {
     },
   }
   const unregisterRemember = commands.register(rememberCmd)
+  const agentCmd: ActionCommand = {
+    kind: "action",
+    id: "session.agent",
+    name: "agent",
+    description: "Switch the active agent persona (or: off | <name>)",
+    category: "Agents",
+    source: "builtin",
+    argChoices: [...agents.all().map((a) => a.name), "off"],
+    run(args, ctx) {
+      const arg = args.trim()
+      if (!arg) {
+        const list = agents.all()
+        ctx.toast(
+          list.length
+            ? `Agents:\n${list.map((a) => `- ${a.name}: ${a.description}`).join("\n")}\n\nUse /agent <name>.`
+            : "No agents available.",
+        )
+        return
+      }
+      if (arg === "off" || arg === "default") {
+        setActiveAgent(undefined)
+        ctx.toast("Back to the default assistant.")
+        return
+      }
+      const agent = agents.get(arg)
+      if (!agent) {
+        ctx.toast(`Unknown agent: ${arg}`)
+        return
+      }
+      setActiveAgent(agent)
+      ctx.toast(`Now acting as "${agent.name}"${agent.model ? ` (model: ${agent.model})` : ""}.`)
+    },
+  }
+  const unregisterAgent = commands.register(agentCmd)
   onCleanup(() => {
     unregisterClear()
     unregisterResume()
@@ -527,6 +567,7 @@ export function Session() {
     unregisterRedo()
     unregisterCheckpoints()
     unregisterRemember()
+    unregisterAgent()
     commands.clearHostHooks(hostHooks)
   })
 
@@ -655,7 +696,7 @@ export function Session() {
             <Sidebar
               sessionID={sessionData().sessionID}
               messages={messages}
-              model={config.provider.model}
+              model={activeAgent()?.model ?? config.provider.model}
               tokens={totalTokens()}
               loading={loading()}
               startedAt={sessionStart}
@@ -675,7 +716,7 @@ export function Session() {
               <Sidebar
                 sessionID={sessionData().sessionID}
                 messages={messages}
-                model={config.provider.model}
+                model={activeAgent()?.model ?? config.provider.model}
                 tokens={totalTokens()}
                 loading={loading()}
                 startedAt={sessionStart}
