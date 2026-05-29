@@ -22,34 +22,28 @@ export function Logo() {
   const [revealed, setRevealed] = createSignal(0)
   const [done, setDone] = createSignal(false)
 
-  // Replay the typewriter reveal every REPLAY_DELAY_MS after each cycle finishes.
-  const REPLAY_DELAY_MS = 6000
+  // Reveal once on mount, then idle. The previous build replayed every 6s on a
+  // 12ms (~83fps) interval — a permanent render/CPU drain on an otherwise static
+  // home screen. ~30fps (33ms) is visually identical for a one-shot reveal and
+  // the timer stops for good once the logo is fully drawn.
+  const REVEAL_STEP_MS = 33
   let interval: ReturnType<typeof setInterval> | undefined
-  let replayTimer: ReturnType<typeof setTimeout> | undefined
 
-  const startReveal = () => {
-    setDone(false)
-    setRevealed(0)
+  onMount(() => {
     interval = setInterval(() => {
       setRevealed((r) => {
         const next = r + 2
         if (next >= MAX_CHARS) {
           clearInterval(interval)
           setDone(true)
-          replayTimer = setTimeout(startReveal, REPLAY_DELAY_MS)
           return MAX_CHARS
         }
         renderer.requestRender()
         return next
       })
-    }, 12)
-  }
-
-  onMount(startReveal)
-  onCleanup(() => {
-    clearInterval(interval)
-    clearTimeout(replayTimer)
+    }, REVEAL_STEP_MS)
   })
+  onCleanup(() => clearInterval(interval))
 
   const visibleLines = createMemo(() => {
     const r = revealed()

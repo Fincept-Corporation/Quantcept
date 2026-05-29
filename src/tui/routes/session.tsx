@@ -135,6 +135,7 @@ export function Session() {
   const [tokensPrev, setTokensPrev] = createSignal(0)
   const [tokensLive, setTokensLive] = createSignal(0)
   const totalTokens = () => tokensPrev() + tokensLive()
+  const sessionStart = Date.now()
 
   function updateLastAssistantMessage(content: string) {
     setMessages(
@@ -374,7 +375,14 @@ export function Session() {
       <Show when={sidebarVisible()}>
         <Switch>
           <Match when={wide()}>
-            <Sidebar sessionID={sessionData().sessionID} messages={messages} />
+            <Sidebar
+              sessionID={sessionData().sessionID}
+              messages={messages}
+              model={config.provider.model}
+              tokens={totalTokens()}
+              loading={loading()}
+              startedAt={sessionStart}
+            />
           </Match>
 
           <Match when={!wide()}>
@@ -387,7 +395,15 @@ export function Session() {
               alignItems="flex-end"
               backgroundColor={RGBA.fromInts(0, 0, 0, 70)}
             >
-              <Sidebar sessionID={sessionData().sessionID} messages={messages} overlay={true} />
+              <Sidebar
+                sessionID={sessionData().sessionID}
+                messages={messages}
+                model={config.provider.model}
+                tokens={totalTokens()}
+                loading={loading()}
+                startedAt={sessionStart}
+                overlay={true}
+              />
             </box>
           </Match>
         </Switch>

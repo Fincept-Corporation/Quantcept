@@ -4,7 +4,7 @@ import { useRenderer } from "@opentui/solid"
 import { useCommands } from "@tui/context/command"
 import { useExit } from "@tui/context/exit"
 import { useTheme } from "@tui/context/theme"
-import { createMemo, createSignal } from "solid-js"
+import { createMemo, createSignal, type JSX } from "solid-js"
 import { SlashPopover } from "./slash-popover"
 
 const EmptyBorder: BorderCharacters = {
@@ -44,8 +44,8 @@ interface PromptProps {
   placeholder?: string
   placeholders?: { normal: string[]; shell: string[] }
   onSubmit?: (text: string) => void
-  hint?: any
-  right?: any
+  hint?: JSX.Element
+  right?: JSX.Element
   status?: string
   messageCount?: number
   tokenCount?: number
