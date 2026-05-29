@@ -778,12 +778,16 @@ function AssistantMessage(props: {
         </box>
         <box paddingTop={1}>
           <Show when={props.content} fallback={<text fg={props.theme.textMuted}>Thinking...</text>}>
-            <markdown
-              content={props.content}
-              fg={props.theme.markdownText}
-              syntaxStyle={props.syntaxStyle}
-              streaming={props.streaming ?? false}
-            />
+            {/* While streaming, markdown can't resolve unclosed spans (e.g. `**bol`) so it shows
+                raw markers. Render plain text during streaming and swap to full markdown once done. */}
+            <Show
+              when={props.streaming}
+              fallback={
+                <markdown content={props.content} fg={props.theme.markdownText} syntaxStyle={props.syntaxStyle} />
+              }
+            >
+              <text fg={props.theme.markdownText}>{props.content}</text>
+            </Show>
           </Show>
         </box>
       </box>
