@@ -32,7 +32,7 @@ export function Sidebar(props: SidebarProps) {
     >
       <scrollbox flexGrow={1}>
         <box flexShrink={0} gap={1} paddingRight={1}>
-          {/* Mascot at top */}
+          {/* Buddy at top */}
           <box alignItems="center" flexShrink={0}>
             <BuddySprite compact />
           </box>

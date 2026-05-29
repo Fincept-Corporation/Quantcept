@@ -101,9 +101,12 @@ const HAT_LINES: Record<Hat, string> = {
 
 export { BODIES }
 
-export function renderSprite(bones: CompanionBones, frame = 0): string[] {
+// `eyeOverride` swaps the glyph rendered in the eye slot (e.g. "-" for a blink)
+// without touching any body art — only the EYE sentinel is replaced.
+export function renderSprite(bones: CompanionBones, frame = 0, eyeOverride?: string): string[] {
   const frames = BODIES[bones.species]
-  const body = frames[frame % frames.length]!.map((line) => line.replaceAll(EYE, bones.eye))
+  const eye = eyeOverride ?? bones.eye
+  const body = frames[frame % frames.length]!.map((line) => line.replaceAll(EYE, eye))
   const lines = [...body]
   // Only replace with hat if line 0 is empty (some fidget frames use it for smoke etc)
   if (bones.hat !== "none" && !lines[0]!.trim()) lines[0] = HAT_LINES[bones.hat]

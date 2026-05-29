@@ -89,8 +89,10 @@ export function BuddySprite(props: { compact?: boolean }) {
   const lines = createMemo(() => {
     const f = frame()
     const c = buddy.companion()
-    let body = renderSprite(c, f.index)
-    if (f.blink) body = body.map((l) => l.replaceAll(c.eye, "-"))
+    // For a blink, render the eye slot directly as "-" so only the eye changes —
+    // string-replacing c.eye afterwards could clobber body art (e.g. a literal
+    // "@" eye also appears in the snail's body).
+    let body = renderSprite(c, f.index, f.blink ? "-" : undefined)
     if (petting()) body = [HEARTS[tick() % HEARTS.length]!, ...body]
     return body
   })
