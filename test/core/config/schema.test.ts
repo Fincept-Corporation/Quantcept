@@ -27,3 +27,28 @@ describe("ConfigSchema mcp field", () => {
     expect(defaultConfig.mcp).toEqual({ servers: {} })
   })
 })
+
+describe("ConfigSchema permissions.rules", () => {
+  test("defaults rules to empty array", () => {
+    const c = ConfigSchema.parse({ provider: { id: "anthropic-messages", model: "m", baseUrl: "https://x" } })
+    expect(c.permissions.rules).toEqual([])
+  })
+  test("parses rules with action enum", () => {
+    const c = ConfigSchema.parse({
+      provider: { id: "anthropic-messages", model: "m", baseUrl: "https://x" },
+      permissions: { rules: [{ permission: "shell", pattern: "git *", action: "allow" }] },
+    })
+    expect(c.permissions.rules[0].action).toBe("allow")
+  })
+  test("rejects an invalid action", () => {
+    expect(() =>
+      ConfigSchema.parse({
+        provider: { id: "anthropic-messages", model: "m", baseUrl: "https://x" },
+        permissions: { rules: [{ permission: "shell", pattern: "x", action: "bogus" }] },
+      }),
+    ).toThrow()
+  })
+  test("defaultConfig includes empty rules", () => {
+    expect(defaultConfig.permissions.rules).toEqual([])
+  })
+})

@@ -15,8 +15,17 @@ export const ConfigSchema = z.object({
   permissions: z
     .object({
       defaultMode: z.enum(["ask", "allow", "deny"]).default("ask"),
+      rules: z
+        .array(
+          z.object({
+            permission: z.string(),
+            pattern: z.string(),
+            action: z.enum(["allow", "ask", "deny"]),
+          }),
+        )
+        .default([]),
     })
-    .default({ defaultMode: "ask" }),
+    .default({ defaultMode: "ask", rules: [] }),
   mcp: McpConfigSchema,
 })
 
@@ -31,6 +40,6 @@ export const defaultConfig: Config = {
     maxTokens: 8192,
     temperature: 0.7,
   },
-  permissions: { defaultMode: "ask" },
+  permissions: { defaultMode: "ask", rules: [] },
   mcp: { servers: {} },
 }
