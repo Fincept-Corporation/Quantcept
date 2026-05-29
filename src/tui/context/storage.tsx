@@ -36,6 +36,9 @@ export const { use: useStorage, provider: StorageProvider } = createSimpleContex
       appendEvent(sessionId: string, record: TranscriptRecord): void {
         guard(() => store!.appendEvent(sessionId, record), undefined)
       },
+      setTitle(sessionId: string, title: string): void {
+        guard(() => store!.setTitle(sessionId, title), undefined)
+      },
       touch(sessionId: string, vals: { msgCount?: number; tokens?: number }): void {
         guard(() => store!.touch(sessionId, vals), undefined)
       },

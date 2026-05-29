@@ -134,7 +134,12 @@ export function Session() {
         })
       }),
     )
-    if (content.length > 0) storage.appendEvent(sessionData().sessionID, { t: "msg", role, content, ts })
+    if (content.length > 0) {
+      const id = sessionData().sessionID
+      storage.appendEvent(id, { t: "msg", role, content, ts })
+      // Derive the session title from the first user message (write-once).
+      if (role === "user") storage.setTitle(id, content.slice(0, 60))
+    }
   }
 
   onMount(() => {
@@ -282,7 +287,8 @@ export function Session() {
           ts: Date.now(),
         })
       }
-      storage.touch(sessionData().sessionID, { msgCount: messages.length, tokens: totalTokens() })
+      const realMsgCount = messages.filter((m) => m.role !== "tool" && m.content.length > 0).length
+      storage.touch(sessionData().sessionID, { msgCount: realMsgCount, tokens: totalTokens() })
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error)
       setMessages(

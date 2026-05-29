@@ -48,4 +48,38 @@ describe("SessionStore", () => {
     expect(list.length).toBe(1)
     expect(list[0]!.title).toBe("T")
   })
+
+  test("a resumed session (fresh store instance) can persist new messages", () => {
+    // Write + close, simulating a process exit.
+    store.createSession({ id: "s1", cwd: "/repo/a" })
+    store.appendEvent("s1", { t: "msg", role: "user", content: "first", ts: 1 })
+    store.close()
+    // Fresh instance (new process): resume by loadSession, then append more.
+    const reopened = new SessionStore()
+    const replayed = reopened.loadSession("s1")
+    expect(replayed.filter((r) => r.t === "msg").length).toBe(1)
+    reopened.appendEvent("s1", { t: "msg", role: "assistant", content: "second", ts: 2 })
+    const after = reopened.loadSession("s1")
+    reopened.close()
+    // The new message must have landed in the same transcript file.
+    expect(after.filter((r) => r.t === "msg").map((r) => (r as { content: string }).content)).toEqual([
+      "first",
+      "second",
+    ])
+    // Reassign so afterEach closes a valid handle.
+    store = new SessionStore()
+  })
+
+  test("setTitle writes once and does not overwrite an existing title", () => {
+    store.createSession({ id: "s1", cwd: "/repo/a" })
+    store.setTitle("s1", "First title")
+    store.setTitle("s1", "Second title (ignored)")
+    const row = store.listSessions(store.projectHashFor("/repo/a"))[0]!
+    expect(row.title).toBe("First title")
+  })
+
+  test("appendEvent on an unknown session is a no-op (no throw)", () => {
+    expect(() => store.appendEvent("never-created", { t: "msg", role: "user", content: "x", ts: 1 })).not.toThrow()
+    expect(store.loadSession("never-created")).toEqual([])
+  })
 })

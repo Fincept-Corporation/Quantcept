@@ -64,6 +64,13 @@ export class SessionStore {
     appendJsonl(sessionFile(ph, sessionId), record)
   }
 
+  /** Set the session title, but only if it is still unset (write-once). */
+  setTitle(sessionId: string, title: string): void {
+    const trimmed = title.trim()
+    if (!trimmed) return
+    this.db.query("UPDATE session SET title = ? WHERE id = ? AND title IS NULL").run(trimmed, sessionId)
+  }
+
   /** Update the index row's rollups at a turn boundary. */
   touch(sessionId: string, vals: { msgCount?: number; tokens?: number; updatedAt?: number }): void {
     const now = vals.updatedAt ?? Date.now()
