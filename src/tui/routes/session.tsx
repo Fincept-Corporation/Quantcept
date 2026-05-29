@@ -27,6 +27,11 @@ import { RecallTool } from "@core/tools/builtin/RecallTool"
 import { RememberTool } from "@core/tools/builtin/RememberTool"
 import { ShellTool } from "@core/tools/builtin/ShellTool"
 import { WriteTool } from "@core/tools/builtin/WriteTool"
+import { BalanceSheetTool } from "@core/tools/finance/BalanceSheetTool"
+import { CashflowTool } from "@core/tools/finance/CashflowTool"
+import { IncomeStatementTool } from "@core/tools/finance/IncomeStatementTool"
+import { PriceHistoryTool } from "@core/tools/finance/PriceHistoryTool"
+import { TickerInfoTool } from "@core/tools/finance/TickerInfoTool"
 import { ToolRegistry } from "@core/tools/registry"
 import { detectShell } from "@core/tools/shell/detect"
 import { formatApproval } from "@core/tools/shell/format"
@@ -90,6 +95,11 @@ export function Session() {
   registry.register(ShellTool)
   registry.register(RememberTool)
   registry.register(RecallTool)
+  registry.register(TickerInfoTool)
+  registry.register(IncomeStatementTool)
+  registry.register(BalanceSheetTool)
+  registry.register(CashflowTool)
+  registry.register(PriceHistoryTool)
   const mcp = new McpManager()
   onMount(async () => {
     try {
