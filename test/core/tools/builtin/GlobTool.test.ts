@@ -26,4 +26,11 @@ describe("GlobTool", () => {
     const r = await GlobTool.call({ pattern: "**/*.py" }, ctxOf(cwd))
     expect(r.output).toEqual([])
   })
+  test("on error, the message is in output (not an empty array)", async () => {
+    // resolveInCwd throws on traversal escape → exercises the catch branch
+    const r = await GlobTool.call({ pattern: "**/*", cwd: "../escape" }, ctxOf(cwd))
+    expect(r.isError).toBe(true)
+    expect(typeof r.output).toBe("string")
+    expect(String(r.output)).toContain("glob failed")
+  })
 })

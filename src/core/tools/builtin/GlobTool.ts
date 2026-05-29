@@ -7,7 +7,7 @@ const InputSchema = z.object({
   cwd: z.string().optional(),
 })
 
-export const GlobTool = buildTool({
+export const GlobTool = buildTool<typeof InputSchema, string[] | string>({
   name: "glob",
   description: "Find files matching a glob pattern (e.g. **/*.ts), relative to the workspace.",
   inputSchema: InputSchema,
@@ -23,11 +23,7 @@ export const GlobTool = buildTool({
       out.sort()
       return { output: out, title: `${out.length} match(es)` }
     } catch (e) {
-      return {
-        output: [],
-        title: `glob failed: ${e instanceof Error ? e.message : String(e)}`,
-        isError: true,
-      }
+      return { output: `glob failed: ${e instanceof Error ? e.message : String(e)}`, isError: true }
     }
   },
 })
