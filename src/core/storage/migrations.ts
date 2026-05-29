@@ -23,4 +23,20 @@ export const MIGRATIONS: Migration[] = [
         ON session(project_hash, updated_at DESC);
     `,
   },
+  {
+    id: "0002_checkpoint",
+    sql: `
+      CREATE TABLE IF NOT EXISTS checkpoint (
+        id           TEXT PRIMARY KEY,
+        session_id   TEXT NOT NULL,
+        project_hash TEXT NOT NULL,
+        tree_hash    TEXT NOT NULL,
+        kind         TEXT NOT NULL,
+        label        TEXT,
+        created_at   INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS checkpoint_session_idx
+        ON checkpoint(session_id, created_at DESC);
+    `,
+  },
 ]
