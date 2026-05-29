@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { z } from "zod/v4"
-import { buildTool } from "@core/tools/Tool"
+import { buildTool, type Tool } from "@core/tools/Tool"
 import { executeTool } from "@core/tools/executor"
 
 const echo = buildTool({
@@ -27,5 +27,28 @@ describe("executeTool", () => {
     const writeTool = buildTool({ name: "w", description: "", inputSchema: z.object({}), async call() { return { output: "ran" } } })
     const r = await executeTool(writeTool, {}, { mode: "deny", cwd: "/", abort: new AbortController().signal, ask: async () => "deny" })
     expect(r.isError).toBe(true)
+  })
+  test("a tool with inputJSONSchema skips Zod and passes raw input through", async () => {
+    let received: unknown
+    const mcpish: Tool = {
+      name: "mcp__fs__read",
+      description: "",
+      inputSchema: z.object({ path: z.string() }), // would REJECT { foo: 1 }
+      inputJSONSchema: { type: "object" },
+      isReadOnly: () => true,
+      isDestructive: () => false,
+      async call(input) {
+        received = input
+        return { output: "ok" }
+      },
+    }
+    const r = await executeTool(mcpish, { foo: 1 }, {
+      mode: "ask",
+      cwd: "/",
+      abort: new AbortController().signal,
+      ask: async () => "allow",
+    })
+    expect(r.output).toBe("ok")
+    expect(received).toEqual({ foo: 1 })
   })
 })

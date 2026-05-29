@@ -10,11 +10,17 @@ export interface ExecutorContext {
 }
 
 export async function executeTool(tool: Tool, rawInput: unknown, ctx: ExecutorContext): Promise<ToolResult> {
-  const parsed = tool.inputSchema.safeParse(rawInput)
-  if (!parsed.success) {
-    return { output: `Tool ${tool.name} received invalid input: ${parsed.error.message}`, isError: true }
+  let input: unknown
+  if (tool.inputJSONSchema) {
+    // MCP tools carry JSON Schema; the server validates. Pass args through.
+    input = rawInput
+  } else {
+    const parsed = tool.inputSchema.safeParse(rawInput)
+    if (!parsed.success) {
+      return { output: `Tool ${tool.name} received invalid input: ${parsed.error.message}`, isError: true }
+    }
+    input = parsed.data
   }
-  const input = parsed.data
 
   const decision = checkPermission(
     { isReadOnly: tool.isReadOnly(input), isDestructive: tool.isDestructive(input) },
