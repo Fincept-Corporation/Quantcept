@@ -1,4 +1,5 @@
 import type { ChatMessage, ContentBlock, Provider, StreamHandlers, ToolDefinition } from "@core/llm/types"
+import type { PermissionRule } from "@core/permissions/rules"
 import type { PermissionDecision, PermissionMode } from "@core/permissions/schema"
 import { executeTool } from "@core/tools/executor"
 import type { ToolRegistry } from "@core/tools/registry"
@@ -16,6 +17,7 @@ export interface AgentTurnInput {
   mode: PermissionMode
   cwd: string
   ask: (tool: Tool, input: unknown) => Promise<PermissionDecision>
+  rules?: PermissionRule[]
   onEvent?: AgentEventHandler
 }
 
@@ -78,6 +80,7 @@ export async function runAgentTurn(input: AgentTurnInput, handlers?: StreamHandl
         cwd: input.cwd,
         abort: new AbortController().signal,
         ask: input.ask,
+        rules: input.rules,
       })
       input.onEvent?.({ type: "tool_end", tool: tool.name, output: r.output, isError: !!r.isError })
       resultBlocks.push({ type: "tool_result", toolUseId: use.id, output: r.output, isError: !!r.isError })

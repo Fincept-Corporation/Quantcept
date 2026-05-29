@@ -208,6 +208,7 @@ export function Session() {
           messages: history,
           system: SYSTEM_PROMPT,
           mode: config.permissions.defaultMode,
+          rules: config.permissions.rules,
           cwd: process.cwd(),
           ask: askViaDialog,
           onEvent: (e) => {
