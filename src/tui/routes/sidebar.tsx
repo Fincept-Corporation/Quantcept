@@ -1,4 +1,4 @@
-import { MascotCompact } from "@tui/components/mascot"
+import { BuddySprite } from "@tui/buddy/BuddySprite"
 import { useTheme } from "@tui/context/theme"
 
 interface SidebarProps {
@@ -34,7 +34,7 @@ export function Sidebar(props: SidebarProps) {
         <box flexShrink={0} gap={1} paddingRight={1}>
           {/* Mascot at top */}
           <box alignItems="center" flexShrink={0}>
-            <MascotCompact />
+            <BuddySprite compact />
           </box>
 
           {/* Divider */}

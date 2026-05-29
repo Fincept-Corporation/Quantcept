@@ -1,6 +1,6 @@
 import { useTerminalDimensions } from "@opentui/solid"
+import { BuddySprite } from "@tui/buddy/BuddySprite"
 import { Logo } from "@tui/components/logo"
-import { Mascot } from "@tui/components/mascot"
 import { Prompt } from "@tui/components/prompt"
 import { useRoute } from "@tui/context/route"
 import { useTheme } from "@tui/context/theme"
@@ -30,7 +30,7 @@ export function Home() {
       </box>
       <box height={1} minHeight={0} flexShrink={1} />
       <box flexShrink={1} minHeight={0}>
-        <Mascot />
+        <BuddySprite />
       </box>
       <box height={1} minHeight={0} flexShrink={1} />
       <box width="100%" maxWidth={promptMaxWidth()} zIndex={1000} flexShrink={0}>

@@ -15,6 +15,7 @@ import { ToolRegistry } from "@core/tools/registry"
 import type { Tool } from "@core/tools/Tool"
 import type { ActionCommand } from "@ext/commands/types"
 import type { ScrollBoxRenderable } from "@opentui/core"
+import { useBuddy } from "@tui/buddy/BuddyContext"
 import { Prompt } from "@tui/components/prompt"
 import { ToolMessage } from "@tui/components/tool-message"
 import { useCommands } from "@tui/context/command"
@@ -51,6 +52,7 @@ function formatTime(ts: number): string {
 
 export function Session() {
   const { theme } = useTheme()
+  const buddy = useBuddy()
   const config = loadConfig()
   const provider = createProvider(config.provider)
   const registry = new ToolRegistry()
@@ -138,6 +140,7 @@ export function Session() {
   async function handleSubmit(text: string) {
     addMessage("user", text)
     setLoading(true)
+    buddy.react("thinking")
     setTokensLive(0)
 
     addMessage("assistant", "")
@@ -215,6 +218,7 @@ export function Session() {
       )
       setTokensPrev((p) => p + result.totalTokens)
       setTokensLive(0)
+      buddy.react("success")
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error)
       setMessages(
@@ -231,6 +235,7 @@ export function Session() {
         }),
       )
       updateLastAssistantMessage(`Error: ${errMsg}`)
+      buddy.react("error")
     } finally {
       setLoading(false)
       renderer.requestRender()
