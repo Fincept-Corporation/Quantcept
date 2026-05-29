@@ -32,8 +32,13 @@ export const { use: useSnapshot, provider: SnapshotProvider } = createSimpleCont
       }
     }
 
-    // Redo stack: each entry is { preHash, redoHash } captured at undo time.
-    const redoStack: { preHash: string; redoHash: string }[] = []
+    // Undo bookkeeping. `consumed` holds the ids of tool checkpoints already
+    // undone, so undo always targets the newest NOT-yet-undone checkpoint —
+    // robust even when a new edit (and checkpoint) lands between undos. The
+    // redo stack pairs each undone checkpoint id with the post-edit tree to
+    // reapply, in LIFO order.
+    const consumed = new Set<string>()
+    const redoStack: { checkpointId: string; redoHash: string }[] = []
 
     return {
       projectHash: ph,
@@ -75,14 +80,16 @@ export const { use: useSnapshot, provider: SnapshotProvider } = createSimpleCont
       /** Undo the most recent tool checkpoint not already undone. */
       undo(sessionId: string): { files: string[] } | null {
         return guard(() => {
+          // Newest-first; pick the first checkpoint we haven't already undone.
           const tools = store!.listBySession(sessionId, "tool")
-          const target = tools[redoStack.length] // walk further back per redo-stack depth
+          const target = tools.find((c) => !consumed.has(c.id))
           if (!target) return null
           const current = engine!.track("pre-undo")
           const diffs = engine!.diff(target.treeHash)
           const files = diffs.map((d) => d.file)
           engine!.revert(target.treeHash, files)
-          if (current) redoStack.push({ preHash: target.treeHash, redoHash: current })
+          consumed.add(target.id)
+          if (current) redoStack.push({ checkpointId: target.id, redoHash: current })
           return { files }
         }, null)
       },
@@ -93,6 +100,7 @@ export const { use: useSnapshot, provider: SnapshotProvider } = createSimpleCont
           const entry = redoStack.pop()
           if (!entry) return false
           engine!.restore(entry.redoHash)
+          consumed.delete(entry.checkpointId) // it's undoable again
           return true
         }, false)
       },

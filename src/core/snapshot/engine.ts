@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, rmSync, statSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { isGitAvailable, runGit } from "./git"
 
@@ -35,6 +35,32 @@ export class SnapshotEngine {
       runGit(["init"], { cwd: this.workTree, gitDir: this.gitDir, workTree: this.workTree })
       this.git(["config", "core.autocrlf", "false"])
       this.git(["config", "core.longpaths", "true"])
+    }
+    this.syncIgnores()
+  }
+
+  /**
+   * Sync the user's ignore rules into the snapshot repo's info/exclude so that
+   * `git add --all` never snapshots node_modules / build output. We fold in the
+   * worktree's top-level .gitignore and the user's real .git/info/exclude.
+   * (`git add --all` also honors nested .gitignore files in the worktree.)
+   */
+  private syncIgnores(): void {
+    const sources = [join(this.workTree, ".gitignore"), join(this.workTree, ".git", "info", "exclude")]
+    const parts: string[] = []
+    for (const src of sources) {
+      try {
+        if (existsSync(src)) parts.push(readFileSync(src, "utf8"))
+      } catch {
+        // unreadable — skip
+      }
+    }
+    try {
+      const infoDir = join(this.gitDir, "info")
+      mkdirSync(infoDir, { recursive: true })
+      writeFileSync(join(infoDir, "exclude"), parts.join("\n"))
+    } catch {
+      // best-effort
     }
   }
 

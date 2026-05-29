@@ -396,18 +396,26 @@ export function Session() {
     description: "List turn checkpoints and roll the worktree back to one",
     category: "Session",
     source: "builtin",
-    run(_args, ctx) {
+    async run(_args, ctx) {
       const cps = snapshot.listCheckpoints(sessionData().sessionID, "turn")
       if (cps.length === 0) {
         ctx.toast("No checkpoints yet.")
         return
       }
+      const latest = cps[0]!
       const lines = cps
         .slice(0, 10)
         .map((c, i) => `${i + 1}. ${c.label ?? "(turn)"}`)
         .join("\n")
-      ctx.toast(`Checkpoints:\n${lines}\n\nRolling back to the latest…`)
-      snapshot.revertTo(cps[0]!.treeHash)
+      // Whole-worktree restore is destructive of uncommitted work — confirm first.
+      const ok = await DialogConfirm.show(
+        dialog,
+        "Roll back to the latest checkpoint?",
+        `This restores all files to:\n"${latest.label ?? "(turn)"}"\n\nRecent checkpoints:\n${lines}`,
+      )
+      if (!ok) return
+      snapshot.revertTo(latest.treeHash)
+      ctx.toast("Rolled back to the latest checkpoint.")
     },
   }
   const unregisterUndo = commands.register(undoCmd)

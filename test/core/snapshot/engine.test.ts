@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 import { SnapshotEngine } from "@core/snapshot/engine"
@@ -65,5 +65,18 @@ describe("SnapshotEngine", () => {
     const diffs = eng.diff(pre)
     expect(diffs.every((d) => d.file !== "big.bin" || d.status === "A")).toBe(true)
     expect(diffs.find((d) => d.file === "small.txt")).toBeUndefined()
+  })
+
+  maybe("a gitignored path is not snapshotted", () => {
+    writeFileSync(join(work, ".gitignore"), "ignored/\n")
+    writeFileSync(join(work, "kept.txt"), "keep\n")
+    mkdirSync(join(work, "ignored"), { recursive: true })
+    writeFileSync(join(work, "ignored", "secret.txt"), "node_modules-like\n")
+    const eng = new SnapshotEngine(work, snap)
+    eng.init()
+    const pre = eng.track("snap")!
+    // The ignored file must not be in the snapshot tree.
+    const diffs = eng.diff(pre)
+    expect(diffs.find((d) => d.file.includes("ignored/secret.txt"))).toBeUndefined()
   })
 })
