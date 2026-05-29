@@ -27,6 +27,7 @@ import { ToolMessage } from "@tui/components/tool-message"
 import { useCommands } from "@tui/context/command"
 import { useExit } from "@tui/context/exit"
 import { type SessionRoute, useRoute } from "@tui/context/route"
+import { useSnapshot } from "@tui/context/snapshot"
 import { useStorage } from "@tui/context/storage"
 import { type ThemeColors, useTheme } from "@tui/context/theme"
 import { buildSyntaxStyle } from "@tui/themes/syntax-style"
@@ -61,6 +62,7 @@ export function Session() {
   const { theme } = useTheme()
   const buddy = useBuddy()
   const storage = useStorage()
+  const snapshot = useSnapshot()
   const config = loadConfig()
   const provider = createProvider(config.provider)
   const registry = new ToolRegistry()
@@ -192,6 +194,7 @@ export function Session() {
     addMessage("user", text)
     setLoading(true)
     buddy.react("thinking")
+    snapshot.track(sessionData().sessionID, "turn", text.slice(0, 60))
     setTokensLive(0)
 
     addMessage("assistant", "")
@@ -211,6 +214,10 @@ export function Session() {
           rules: config.permissions.rules,
           cwd: process.cwd(),
           ask: askViaDialog,
+          snapshot: {
+            track: async (label: string) => snapshot.trackRaw(label),
+            revertTo: async (treeHash: string) => snapshot.revertTo(treeHash),
+          },
           onEvent: (e) => {
             if (e.type === "text") {
               setMessages(
@@ -355,9 +362,63 @@ export function Session() {
     },
   }
   const unregisterResume = commands.register(resumeCmd)
+  const undoCmd: ActionCommand = {
+    kind: "action",
+    id: "session.undo",
+    name: "undo",
+    description: "Revert the last file change the assistant made",
+    category: "Session",
+    source: "builtin",
+    run(_args, ctx) {
+      const result = snapshot.undo(sessionData().sessionID)
+      if (!result) {
+        ctx.toast("Nothing to undo.")
+        return
+      }
+      ctx.toast(result.files.length ? `Reverted: ${result.files.join(", ")}` : "Reverted last change.")
+    },
+  }
+  const redoCmd: ActionCommand = {
+    kind: "action",
+    id: "session.redo",
+    name: "redo",
+    description: "Re-apply the last undone file change",
+    category: "Session",
+    source: "builtin",
+    run(_args, ctx) {
+      ctx.toast(snapshot.redo() ? "Re-applied last change." : "Nothing to redo.")
+    },
+  }
+  const checkpointsCmd: ActionCommand = {
+    kind: "action",
+    id: "session.checkpoints",
+    name: "checkpoints",
+    description: "List turn checkpoints and roll the worktree back to one",
+    category: "Session",
+    source: "builtin",
+    run(_args, ctx) {
+      const cps = snapshot.listCheckpoints(sessionData().sessionID, "turn")
+      if (cps.length === 0) {
+        ctx.toast("No checkpoints yet.")
+        return
+      }
+      const lines = cps
+        .slice(0, 10)
+        .map((c, i) => `${i + 1}. ${c.label ?? "(turn)"}`)
+        .join("\n")
+      ctx.toast(`Checkpoints:\n${lines}\n\nRolling back to the latest…`)
+      snapshot.revertTo(cps[0]!.treeHash)
+    },
+  }
+  const unregisterUndo = commands.register(undoCmd)
+  const unregisterRedo = commands.register(redoCmd)
+  const unregisterCheckpoints = commands.register(checkpointsCmd)
   onCleanup(() => {
     unregisterClear()
     unregisterResume()
+    unregisterUndo()
+    unregisterRedo()
+    unregisterCheckpoints()
     commands.clearHostHooks(hostHooks)
   })
 

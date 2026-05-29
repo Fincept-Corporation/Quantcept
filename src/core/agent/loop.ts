@@ -19,6 +19,10 @@ export interface AgentTurnInput {
   ask: (tool: Tool, input: unknown) => Promise<PermissionDecision>
   rules?: PermissionRule[]
   onEvent?: AgentEventHandler
+  snapshot?: {
+    track(label: string): Promise<string | null>
+    revertTo(treeHash: string): Promise<void>
+  }
 }
 
 export interface AgentTurnResult {
@@ -81,6 +85,7 @@ export async function runAgentTurn(input: AgentTurnInput, handlers?: StreamHandl
         abort: new AbortController().signal,
         ask: input.ask,
         rules: input.rules,
+        snapshot: input.snapshot,
       })
       input.onEvent?.({ type: "tool_end", tool: tool.name, output: r.output, isError: !!r.isError })
       resultBlocks.push({ type: "tool_result", toolUseId: use.id, output: r.output, isError: !!r.isError })
