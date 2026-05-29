@@ -10,6 +10,7 @@ import { CommandProvider, useCommands } from "@tui/context/command"
 import { createExit, type Exit, ExitProvider, useExit } from "@tui/context/exit"
 import { KVProvider } from "@tui/context/kv"
 import { RouteProvider, useRoute } from "@tui/context/route"
+import { SnapshotProvider } from "@tui/context/snapshot"
 import { StorageProvider } from "@tui/context/storage"
 import { ThemeProvider, useTheme } from "@tui/context/theme"
 import { TuiConfigProvider } from "@tui/context/tui-config"
@@ -118,21 +119,23 @@ async function mountApp(input: AppInput & { keymap: ReturnType<typeof createDefa
             <ExitProvider exit={input.exit}>
               <KVProvider>
                 <StorageProvider>
-                  <TuiConfigProvider>
-                    <RouteProvider>
-                      <ThemeProvider mode={mode}>
-                        <ToastProvider>
-                          <DialogProvider>
-                            <CommandProvider>
-                              <BuddyProvider>
-                                <App />
-                              </BuddyProvider>
-                            </CommandProvider>
-                          </DialogProvider>
-                        </ToastProvider>
-                      </ThemeProvider>
-                    </RouteProvider>
-                  </TuiConfigProvider>
+                  <SnapshotProvider>
+                    <TuiConfigProvider>
+                      <RouteProvider>
+                        <ThemeProvider mode={mode}>
+                          <ToastProvider>
+                            <DialogProvider>
+                              <CommandProvider>
+                                <BuddyProvider>
+                                  <App />
+                                </BuddyProvider>
+                              </CommandProvider>
+                            </DialogProvider>
+                          </ToastProvider>
+                        </ThemeProvider>
+                      </RouteProvider>
+                    </TuiConfigProvider>
+                  </SnapshotProvider>
                 </StorageProvider>
               </KVProvider>
             </ExitProvider>
