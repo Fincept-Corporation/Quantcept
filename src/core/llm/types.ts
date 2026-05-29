@@ -1,16 +1,29 @@
+export type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: unknown }
+  | { type: "tool_result"; toolUseId: string; output: unknown; isError: boolean }
+
 export interface ChatMessage {
   role: "user" | "assistant"
-  content: string
+  content: string | ContentBlock[]
+}
+
+export interface ToolDefinition {
+  name: string
+  description: string
+  inputSchema: Record<string, unknown>
 }
 
 export interface ChatRequest {
   messages: ChatMessage[]
   system?: string
   stream?: boolean
+  tools?: ToolDefinition[]
 }
 
 export interface ChatResult {
   text: string
+  blocks?: ContentBlock[]
   inputTokens: number
   outputTokens: number
   stopReason: string
