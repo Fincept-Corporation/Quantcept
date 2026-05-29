@@ -4,7 +4,7 @@ import { useRenderer } from "@opentui/solid"
 import { useCommands } from "@tui/context/command"
 import { useExit } from "@tui/context/exit"
 import { useTheme } from "@tui/context/theme"
-import { createMemo, createSignal, type JSX } from "solid-js"
+import { createMemo, createSignal, type JSX, onCleanup, onMount } from "solid-js"
 import { SlashPopover } from "./slash-popover"
 
 const EmptyBorder: BorderCharacters = {
@@ -56,6 +56,18 @@ export function Prompt(props: PromptProps) {
   const exit = useExit()
   const renderer = useRenderer()
   const [value, setValue] = createSignal("")
+  // Slow tick to rotate the placeholder phrase while the input is empty. Only
+  // requests a render when empty, so a focused/typed prompt costs nothing.
+  const [phraseTick, setPhraseTick] = createSignal(0)
+  let phraseTimer: ReturnType<typeof setInterval>
+  onMount(() => {
+    phraseTimer = setInterval(() => {
+      if (value().length > 0) return
+      setPhraseTick((t) => t + 1)
+      renderer.requestRender()
+    }, 5000)
+  })
+  onCleanup(() => clearInterval(phraseTimer))
   const commands = useCommands()
   const [slashSelected, setSlashSelected] = createSignal(0)
   const slashResults = createMemo<Command[]>(() => {
@@ -78,7 +90,7 @@ export function Prompt(props: PromptProps) {
 
   const placeholderText = () => {
     const phrases = props.placeholders?.normal ?? [props.placeholder ?? "Ask anything..."]
-    const base = phrases[Math.floor(Date.now() / 10000) % phrases.length]
+    const base = phrases[phraseTick() % phrases.length]
     return `Ask anything... "${base}"`
   }
 
