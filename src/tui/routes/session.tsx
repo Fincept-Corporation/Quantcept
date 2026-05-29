@@ -9,6 +9,7 @@ import { runAgentTurn } from "@core/agent/loop"
 import { SYSTEM_PROMPT } from "@core/agent/system"
 import { loadConfig } from "@core/config/load"
 import { createProvider } from "@core/llm/provider"
+import { McpManager } from "@core/mcp/manager"
 import type { PermissionDecision } from "@core/permissions/schema"
 import { CalculatorTool } from "@core/tools/builtin/CalculatorTool"
 import { ToolRegistry } from "@core/tools/registry"
@@ -57,6 +58,15 @@ export function Session() {
   const provider = createProvider(config.provider)
   const registry = new ToolRegistry()
   registry.register(CalculatorTool)
+  const mcp = new McpManager()
+  onMount(async () => {
+    try {
+      await mcp.start(config.mcp, registry)
+    } catch {
+      // start() already logs per-server failures; never block the session.
+    }
+  })
+  onCleanup(() => void mcp.stop())
   const dialog = useDialog()
 
   async function askViaDialog(tool: Tool, input: unknown): Promise<PermissionDecision> {
