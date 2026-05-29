@@ -1,6 +1,6 @@
 import { createTextAttributes, RGBA, type SyntaxStyle } from "@opentui/core"
 import { useRenderer, useTerminalDimensions } from "@opentui/solid"
-import { batch, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
+import { batch, createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 
 const BOLD = createTextAttributes({ bold: true })
@@ -11,6 +11,7 @@ import { loadConfig } from "@core/config/load"
 import { createProvider } from "@core/llm/provider"
 import { McpManager } from "@core/mcp/manager"
 import type { PermissionDecision } from "@core/permissions/schema"
+import { filterRegistry } from "@core/skills"
 import { CalculatorTool } from "@core/tools/builtin/CalculatorTool"
 import { EditTool } from "@core/tools/builtin/EditTool"
 import { GlobTool } from "@core/tools/builtin/GlobTool"
@@ -19,6 +20,9 @@ import { ReadTool } from "@core/tools/builtin/ReadTool"
 import { ShellTool } from "@core/tools/builtin/ShellTool"
 import { WriteTool } from "@core/tools/builtin/WriteTool"
 import { ToolRegistry } from "@core/tools/registry"
+import { detectShell } from "@core/tools/shell/detect"
+import { formatApproval } from "@core/tools/shell/format"
+import { describeCommand } from "@core/tools/shell/parse"
 import type { Tool } from "@core/tools/Tool"
 import type { ActionCommand } from "@ext/commands/types"
 import type { ScrollBoxRenderable } from "@opentui/core"
@@ -28,6 +32,7 @@ import { ToolMessage } from "@tui/components/tool-message"
 import { useCommands } from "@tui/context/command"
 import { useExit } from "@tui/context/exit"
 import { type SessionRoute, useRoute } from "@tui/context/route"
+import { useSkills } from "@tui/context/skills"
 import { useSnapshot } from "@tui/context/snapshot"
 import { useStorage } from "@tui/context/storage"
 import { type ThemeColors, useTheme } from "@tui/context/theme"
@@ -64,6 +69,7 @@ export function Session() {
   const buddy = useBuddy()
   const storage = useStorage()
   const snapshot = useSnapshot()
+  const skills = useSkills()
   const config = loadConfig()
   const provider = createProvider(config.provider)
   const registry = new ToolRegistry()
@@ -86,7 +92,17 @@ export function Session() {
   const dialog = useDialog()
 
   async function askViaDialog(tool: Tool, input: unknown): Promise<PermissionDecision> {
-    const ok = await DialogConfirm.show(dialog, `Run ${tool.name}?`, `Input: ${JSON.stringify(input)}`)
+    let message = `Input: ${JSON.stringify(input)}`
+    if (tool.name === "shell" && input && typeof (input as { command?: unknown }).command === "string") {
+      try {
+        const command = (input as { command: string }).command
+        const parts = await describeCommand(command, detectShell().kind)
+        message = formatApproval(parts)
+      } catch {
+        // keep the default message on any failure
+      }
+    }
+    const ok = await DialogConfirm.show(dialog, `Run ${tool.name}?`, message)
     return ok ? "allow" : "deny"
   }
   const route = useRoute()
