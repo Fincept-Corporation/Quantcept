@@ -40,6 +40,9 @@
     "@opentui/solid": "0.2.15",
     "marked": "18.0.4",
     "solid-js": "1.9.12",
+    "tree-sitter-bash": "0.25.1",
+    "tree-sitter-powershell": "0.26.4",
+    "web-tree-sitter": "0.26.9",
     "yargs": "17.7.2",
     "zod": "^4"
   },
