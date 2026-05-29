@@ -39,6 +39,34 @@ describe("skill loader", () => {
     await fs.rm(dir, { recursive: true, force: true })
   })
 
+  test("parses allowedTools as an inline array", async () => {
+    const fs = await import("fs/promises")
+    const os = await import("os")
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "qc-skill-tools-"))
+    await fs.writeFile(
+      path.join(dir, "SKILL.md"),
+      "---\nname: risky\ndescription: needs tools\nallowedTools: [calculator, read]\n---\nBody",
+      "utf8",
+    )
+    const skill = await loadSkillFromDir(dir)
+    expect(skill.allowedTools).toEqual(["calculator", "read"])
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+
+  test("parses allowedTools as a YAML block list", async () => {
+    const fs = await import("fs/promises")
+    const os = await import("os")
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "qc-skill-tools2-"))
+    await fs.writeFile(
+      path.join(dir, "SKILL.md"),
+      "---\nname: risky2\ndescription: needs tools\nallowedTools:\n  - calculator\n  - write\n---\nBody",
+      "utf8",
+    )
+    const skill = await loadSkillFromDir(dir)
+    expect(skill.allowedTools).toEqual(["calculator", "write"])
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+
   test("ignores nested mapping children (metadata block) without leaking keys", async () => {
     const fs = await import("fs/promises")
     const os = await import("os")

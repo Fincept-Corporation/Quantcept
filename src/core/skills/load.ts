@@ -18,15 +18,38 @@ function parseFrontmatter(raw: string): { data: Record<string, unknown>; body: s
     if (idx === -1) continue
     const key = line.slice(0, idx).trim()
     let value = line.slice(idx + 1).trim()
+    // Inline array: `allowedTools: [a, b, c]` → string[].
+    if (value.startsWith("[") && value.endsWith("]")) {
+      data[key] = value
+        .slice(1, -1)
+        .split(",")
+        .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+        .filter((s) => s.length > 0)
+      continue
+    }
     if (value === "") {
-      // Folded scalar: collect following indented (or blank) lines until the next top-level key.
-      const parts: string[] = []
+      // Either a YAML block list (following `- item` lines) or a folded scalar.
+      const listItems: string[] = []
+      const scalarParts: string[] = []
       while (i < lines.length && (/^\s/.test(lines[i]!) || lines[i]!.trim() === "")) {
         const cont = lines[i]!.trim()
-        if (cont !== "") parts.push(cont)
+        if (cont !== "") {
+          if (cont.startsWith("- "))
+            listItems.push(
+              cont
+                .slice(2)
+                .trim()
+                .replace(/^["']|["']$/g, ""),
+            )
+          else scalarParts.push(cont)
+        }
         i++
       }
-      value = parts.join(" ")
+      if (listItems.length > 0) {
+        data[key] = listItems
+        continue
+      }
+      value = scalarParts.join(" ")
     }
     data[key] = value
   }
