@@ -10,6 +10,7 @@ import { CommandProvider, useCommands } from "@tui/context/command"
 import { createExit, type Exit, ExitProvider, useExit } from "@tui/context/exit"
 import { KVProvider } from "@tui/context/kv"
 import { RouteProvider, useRoute } from "@tui/context/route"
+import { StorageProvider } from "@tui/context/storage"
 import { ThemeProvider, useTheme } from "@tui/context/theme"
 import { TuiConfigProvider } from "@tui/context/tui-config"
 import { QuantceptKeymapProvider } from "@tui/keymap"
@@ -116,21 +117,23 @@ async function mountApp(input: AppInput & { keymap: ReturnType<typeof createDefa
           <ArgsProvider {...input.args}>
             <ExitProvider exit={input.exit}>
               <KVProvider>
-                <TuiConfigProvider>
-                  <RouteProvider>
-                    <ThemeProvider mode={mode}>
-                      <ToastProvider>
-                        <DialogProvider>
-                          <CommandProvider>
-                            <BuddyProvider>
-                              <App />
-                            </BuddyProvider>
-                          </CommandProvider>
-                        </DialogProvider>
-                      </ToastProvider>
-                    </ThemeProvider>
-                  </RouteProvider>
-                </TuiConfigProvider>
+                <StorageProvider>
+                  <TuiConfigProvider>
+                    <RouteProvider>
+                      <ThemeProvider mode={mode}>
+                        <ToastProvider>
+                          <DialogProvider>
+                            <CommandProvider>
+                              <BuddyProvider>
+                                <App />
+                              </BuddyProvider>
+                            </CommandProvider>
+                          </DialogProvider>
+                        </ToastProvider>
+                      </ThemeProvider>
+                    </RouteProvider>
+                  </TuiConfigProvider>
+                </StorageProvider>
               </KVProvider>
             </ExitProvider>
           </ArgsProvider>
