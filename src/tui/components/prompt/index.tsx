@@ -21,6 +21,17 @@ const EmptyBorder: BorderCharacters = {
   rightT: "",
 }
 
+/** Compact token counts: 950 → "950", 1_250 → "1.2k", 3_400_000 → "3.4M". */
+function formatTokens(n: number): string {
+  if (n < 1_000) return String(n)
+  if (n < 1_000_000) {
+    const k = n / 1_000
+    return `${k < 10 ? k.toFixed(1) : Math.round(k)}k`
+  }
+  const m = n / 1_000_000
+  return `${m < 10 ? m.toFixed(1) : Math.round(m)}M`
+}
+
 const promptKeyBindings = [
   { name: "return", action: "submit" as const },
   { name: "kpenter", action: "submit" as const },
@@ -248,7 +259,7 @@ export function Prompt(props: PromptProps) {
                 {(props.tokenCount ?? 0) > 0 && (
                   <>
                     <text fg={theme.textMuted}>·</text>
-                    <text fg={theme.textMuted}>{props.tokenCount} tokens</text>
+                    <text fg={theme.textMuted}>{formatTokens(props.tokenCount ?? 0)} tokens</text>
                   </>
                 )}
                 {props.right}
