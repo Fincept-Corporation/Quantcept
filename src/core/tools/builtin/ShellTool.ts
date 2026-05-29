@@ -38,17 +38,20 @@ export const ShellTool = buildTool({
         timedOut = true
         proc.kill()
       }, timeoutMs)
-      const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
-      await proc.exited
-      clearTimeout(timer)
-      const combined = stdout + stderr
-      let output = combined.slice(0, MAX_OUTPUT)
-      if (combined.length > MAX_OUTPUT) output += "\n[output truncated]"
-      if (timedOut) {
-        return { output: `${output}\n[timed out after ${timeoutMs}ms]`, isError: true, title: "shell timeout" }
+      try {
+        const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
+        await proc.exited
+        const combined = stdout + stderr
+        let output = combined.slice(0, MAX_OUTPUT)
+        if (combined.length > MAX_OUTPUT) output += "\n[output truncated]"
+        if (timedOut) {
+          return { output: `${output}\n[timed out after ${timeoutMs}ms]`, isError: true, title: "shell timeout" }
+        }
+        const code = proc.exitCode ?? 0
+        return { output, title: `shell exit ${code}`, isError: code !== 0 }
+      } finally {
+        clearTimeout(timer)
       }
-      const code = proc.exitCode ?? 0
-      return { output, title: `shell exit ${code}`, isError: code !== 0 }
     } catch (e) {
       return { output: `shell failed: ${e instanceof Error ? e.message : String(e)}`, isError: true }
     }
