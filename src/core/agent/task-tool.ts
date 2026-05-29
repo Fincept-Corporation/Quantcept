@@ -3,8 +3,8 @@ import type { PermissionRule } from "@core/permissions/rules"
 import type { PermissionMode } from "@core/permissions/schema"
 import { ToolRegistry } from "@core/tools/registry"
 import { buildTool, type Tool } from "@core/tools/Tool"
-import type { LoadedAgent } from "@ext/agents/manifest"
 import { z } from "zod/v4"
+import type { LoadedAgent } from "./agent-manifest"
 import { runAgentTurn } from "./loop"
 
 export interface TaskToolContext {

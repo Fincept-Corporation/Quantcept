@@ -4,7 +4,7 @@ import { createTaskTool } from "@core/agent/task-tool"
 import { ToolRegistry } from "@core/tools/registry"
 import { buildTool } from "@core/tools/Tool"
 import type { Provider, ChatRequest, ChatResult, StreamHandlers } from "@core/llm/types"
-import type { LoadedAgent } from "@ext/agents/manifest"
+import type { LoadedAgent } from "@core/agent/agent-manifest"
 
 const ctxOf = () => ({ abort: new AbortController().signal, cwd: "/" })
 

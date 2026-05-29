@@ -1,6 +1,6 @@
 import { QuantceptError } from "@shared/errors"
 import fs from "fs/promises"
-import { AgentFrontmatterSchema, type LoadedAgent } from "./manifest"
+import { AgentFrontmatterSchema, type LoadedAgent } from "./agent-manifest"
 
 function parseFrontmatter(content: string): { data: Record<string, unknown>; body: string } {
   const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(content)

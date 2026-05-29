@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { loadAgentFromFile } from "@ext/agents/load"
+import { loadAgentFromFile } from "@core/agent/agent-load"
 import path from "path"
 
 describe("agent loader", () => {

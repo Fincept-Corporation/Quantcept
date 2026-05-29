@@ -1,7 +1,7 @@
 import fs from "node:fs/promises"
 import path from "node:path"
-import { loadAgentFromFile } from "@ext/agents/load"
-import type { LoadedAgent } from "@ext/agents/manifest"
+import { loadAgentFromFile } from "./agent-load"
+import type { LoadedAgent } from "./agent-manifest"
 
 /** Load every .md agent definition in `dir` into a map keyed by agent name. Missing dir → empty map. */
 export async function loadAgents(dir: string): Promise<Map<string, LoadedAgent>> {
