@@ -14,6 +14,10 @@ const MIN_COLS_FOR_FULL_SPRITE = 60
 // Mostly rest; occasional fidget (1,2); -1 = blink on frame 0.
 const IDLE_SEQUENCE = [0, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 2, 0, 0, 0]
 const HEARTS = ["  ♥   ♥  ", " ♥  ♥  ♥ ", "♥   ♥   ♥", " ·   ·  ·"]
+// Expressive-reaction tuning.
+const THINK_BLINK_EVERY = 3 // fast blink cadence while thinking
+const SUCCESS_JUMP_TICKS = 4 // how long the success bob-jump lasts
+const SHAKE_TICKS = 6 // how long the error shake lasts
 
 export function BuddySprite(props: { compact?: boolean }) {
   const buddy = useBuddy()
@@ -73,9 +77,17 @@ export function BuddySprite(props: { compact?: boolean }) {
     return RARITY_COLORS[buddy.companion().rarity]
   })
 
+  // Ticks elapsed since the current reaction began (Infinity when idle).
+  const reactionAge = createMemo(() => (shownMood() === "idle" ? Number.POSITIVE_INFINITY : tick() - reactionStartTick))
+
   const frame = createMemo(() => {
-    const step = IDLE_SEQUENCE[tick() % IDLE_SEQUENCE.length]!
+    const mood = shownMood()
     const count = spriteFrameCount(buddy.companion().species)
+    // While thinking, blink rapidly instead of running the idle sequence.
+    if (mood === "thinking") {
+      return { index: 0, blink: tick() % THINK_BLINK_EVERY === 0 }
+    }
+    const step = IDLE_SEQUENCE[tick() % IDLE_SEQUENCE.length]!
     return step === -1 ? { index: 0, blink: true } : { index: step % count, blink: false }
   })
 
@@ -89,10 +101,30 @@ export function BuddySprite(props: { compact?: boolean }) {
   const lines = createMemo(() => {
     const f = frame()
     const c = buddy.companion()
-    // For a blink, render the eye slot directly as "-" so only the eye changes —
-    // string-replacing c.eye afterwards could clobber body art (e.g. a literal
-    // "@" eye also appears in the snail's body).
-    let body = renderSprite(c, f.index, f.blink ? "-" : undefined)
+    const mood = shownMood()
+    const age = reactionAge()
+
+    // Eye glyph: "-" for a blink, "v" while drooping on error, else the real eye.
+    const eyeOverride = f.blink ? "-" : mood === "error" ? "v" : undefined
+    let body = renderSprite(c, f.index, eyeOverride)
+
+    // Error: horizontal shake — jitter the column 1 space on alternating ticks.
+    if (mood === "error" && age < SHAKE_TICKS) {
+      const pad = tick() % 2 === 0 ? " " : ""
+      body = body.map((l) => pad + l)
+    }
+
+    // Mood topper line above the sprite (thinking "?", success sparkle).
+    let topper: string | undefined
+    if (mood === "thinking") topper = "     ?      "
+    else if (mood === "success" && age < SUCCESS_JUMP_TICKS) topper = "     ✦      "
+
+    // Success: bob-jump — lift the sprite one row for the first few ticks by
+    // adding a blank line below (so the topper stays put and the body "hops").
+    const hop = mood === "success" && age < SUCCESS_JUMP_TICKS && tick() % 2 === 0
+
+    if (topper) body = [topper, ...body]
+    if (hop) body = [...body, "            "]
     if (petting()) body = [HEARTS[tick() % HEARTS.length]!, ...body]
     return body
   })
