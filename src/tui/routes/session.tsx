@@ -5,6 +5,7 @@ import { createStore, produce } from "solid-js/store"
 
 const BOLD = createTextAttributes({ bold: true })
 
+import type { AgentEvent } from "@core/agent/events"
 import { runAgentTurn } from "@core/agent/loop"
 import { SYSTEM_PROMPT } from "@core/agent/system"
 import { loadConfig } from "@core/config/load"
@@ -208,15 +209,61 @@ export function Session() {
     )
   }
 
-  async function handleSubmit(text: string) {
-    addMessage("user", text)
-    setLoading(true)
-    buddy.react("thinking")
-    snapshot.track(sessionData().sessionID, "turn", text.slice(0, 60))
-    setTokensLive(0)
+  const baseSystem = () => {
+    const block = skills.systemBlock()
+    return block ? `${SYSTEM_PROMPT}\n\n${block}` : SYSTEM_PROMPT
+  }
 
-    addMessage("assistant", "")
+  function onAgentEvent(e: AgentEvent) {
+    if (e.type === "text") {
+      setMessages(
+        produce((msgs) => {
+          const last = msgs[msgs.length - 1]
+          if (last && last.role === "assistant") last.content += e.text
+        }),
+      )
+    } else if (e.type === "tool_start") {
+      setMessages(
+        produce((msgs) => {
+          msgs.push({
+            id: `tool-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            role: "tool",
+            content: "",
+            timestamp: Date.now(),
+            toolName: e.tool,
+            toolStatus: "running",
+          })
+        }),
+      )
+      // Fresh bubble for any post-tool assistant text; stays empty (shows "Thinking…") if the model emits none.
+      addMessage("assistant", "")
+    } else if (e.type === "tool_end") {
+      setMessages(
+        produce((msgs) => {
+          // Assumes one running row per tool name (single tool per turn); revisit if concurrent same-named tools are added.
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            if (msgs[i].role === "tool" && msgs[i].toolName === e.tool && msgs[i].toolStatus === "running") {
+              msgs[i].toolStatus = "done"
+              msgs[i].toolOutput = e.output
+              msgs[i].toolIsError = e.isError
+              break
+            }
+          }
+        }),
+      )
+      storage.appendEvent(sessionData().sessionID, {
+        t: "tool",
+        tool: e.tool,
+        status: "done",
+        output: e.output,
+        isError: e.isError,
+        ts: Date.now(),
+      })
+    }
+    renderer.requestRender()
+  }
 
+  async function runTurn(opts: { system: string; toolRegistry: ToolRegistry }) {
     const history = messages
       .filter((m) => m.role !== "tool" && m.content.length > 0)
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
@@ -225,9 +272,9 @@ export function Session() {
       const result = await runAgentTurn(
         {
           provider,
-          registry,
+          registry: opts.toolRegistry,
           messages: history,
-          system: SYSTEM_PROMPT,
+          system: opts.system,
           mode: config.permissions.defaultMode,
           rules: config.permissions.rules,
           cwd: process.cwd(),
@@ -236,54 +283,7 @@ export function Session() {
             track: async (label: string) => snapshot.trackRaw(label),
             revertTo: async (treeHash: string) => snapshot.revertTo(treeHash),
           },
-          onEvent: (e) => {
-            if (e.type === "text") {
-              setMessages(
-                produce((msgs) => {
-                  const last = msgs[msgs.length - 1]
-                  if (last && last.role === "assistant") last.content += e.text
-                }),
-              )
-            } else if (e.type === "tool_start") {
-              setMessages(
-                produce((msgs) => {
-                  msgs.push({
-                    id: `tool-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                    role: "tool",
-                    content: "",
-                    timestamp: Date.now(),
-                    toolName: e.tool,
-                    toolStatus: "running",
-                  })
-                }),
-              )
-              // Fresh bubble for any post-tool assistant text; stays empty (shows "Thinking…") if the model emits none.
-              addMessage("assistant", "")
-            } else if (e.type === "tool_end") {
-              setMessages(
-                produce((msgs) => {
-                  // Assumes one running row per tool name (single tool per turn); revisit if concurrent same-named tools are added.
-                  for (let i = msgs.length - 1; i >= 0; i--) {
-                    if (msgs[i].role === "tool" && msgs[i].toolName === e.tool && msgs[i].toolStatus === "running") {
-                      msgs[i].toolStatus = "done"
-                      msgs[i].toolOutput = e.output
-                      msgs[i].toolIsError = e.isError
-                      break
-                    }
-                  }
-                }),
-              )
-              storage.appendEvent(sessionData().sessionID, {
-                t: "tool",
-                tool: e.tool,
-                status: "done",
-                output: e.output,
-                isError: e.isError,
-                ts: Date.now(),
-              })
-            }
-            renderer.requestRender()
-          },
+          onEvent: onAgentEvent,
         },
         {
           onChunk: (chunk) => {
@@ -338,10 +338,34 @@ export function Session() {
     }
   }
 
+  async function handleSubmit(text: string) {
+    addMessage("user", text)
+    setLoading(true)
+    buddy.react("thinking")
+    snapshot.track(sessionData().sessionID, "turn", text.slice(0, 60))
+    setTokensLive(0)
+    addMessage("assistant", "")
+    await runTurn({ system: baseSystem(), toolRegistry: registry })
+  }
+
+  function runSkill(skillName: string, args: string) {
+    const skill = skills.get(skillName)
+    if (!skill) return
+    addMessage("user", args || `(run skill: ${skillName})`)
+    setLoading(true)
+    buddy.react("thinking")
+    snapshot.track(sessionData().sessionID, "turn", `skill:${skillName}`)
+    setTokensLive(0)
+    addMessage("assistant", "")
+    const system = `${baseSystem()}\n\n## Skill: ${skill.name}\n${skill.prompt}`
+    void runTurn({ system, toolRegistry: filterRegistry(registry, skill.allowedTools) })
+  }
+
   const commands = useCommands()
   const hostHooks = {
     submitPrompt: (text: string) => handleSubmit(text),
     clearMessages: () => setMessages([]),
+    runSkill: (skillName: string, args: string) => runSkill(skillName, args),
   }
   commands.setHostHooks(hostHooks)
   const clearCmd: ActionCommand = {
@@ -446,6 +470,30 @@ export function Session() {
     unregisterRedo()
     unregisterCheckpoints()
     commands.clearHostHooks(hostHooks)
+  })
+
+  // Register a slash command per discovered skill. Skills load async, so do
+  // this in an effect that re-runs as the registry resolves.
+  const skillUnregisters: Array<() => void> = []
+  createEffect(() => {
+    for (const u of skillUnregisters.splice(0)) u()
+    for (const skill of skills.all()) {
+      const cmd: ActionCommand = {
+        kind: "action",
+        id: `skill:${skill.name}`,
+        name: skill.name,
+        description: skill.description,
+        category: "Skills",
+        source: "skill",
+        run(args, ctx) {
+          ctx.runSkill(skill.name, args)
+        },
+      }
+      skillUnregisters.push(commands.register(cmd))
+    }
+  })
+  onCleanup(() => {
+    for (const u of skillUnregisters.splice(0)) u()
   })
 
   return (
