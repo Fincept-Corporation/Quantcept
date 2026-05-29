@@ -325,8 +325,32 @@ export function Session() {
     },
   }
   const unregisterClear = commands.register(clearCmd)
+  const resumeCmd: ActionCommand = {
+    kind: "action",
+    id: "session.resume",
+    name: "resume",
+    description: "List and resume a previous session in this project",
+    category: "Session",
+    source: "builtin",
+    run(_args, ctx) {
+      const ph = storage.projectHashFor(process.cwd())
+      const sessions = storage.listSessions(ph).filter((s) => s.id !== sessionData().sessionID)
+      if (sessions.length === 0) {
+        ctx.toast("No previous sessions in this project.")
+        return
+      }
+      const lines = sessions
+        .slice(0, 10)
+        .map((s, i) => `${i + 1}. ${s.title ?? "(untitled)"} — ${s.msgCount} msgs`)
+        .join("\n")
+      ctx.toast(`Recent sessions:\n${lines}\n\nResuming the latest…`)
+      route.navigate({ type: "session", sessionID: sessions[0]!.id })
+    },
+  }
+  const unregisterResume = commands.register(resumeCmd)
   onCleanup(() => {
     unregisterClear()
+    unregisterResume()
     commands.clearHostHooks(hostHooks)
   })
 
