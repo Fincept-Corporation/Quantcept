@@ -14,13 +14,17 @@ import { createTaskTool } from "@core/agent/task-tool"
 import { loadConfig } from "@core/config/load"
 import { createProvider } from "@core/llm/provider"
 import { McpManager } from "@core/mcp/manager"
+import { memorySystemBlock, readIndex, remember } from "@core/memory"
 import type { PermissionDecision } from "@core/permissions/schema"
 import { filterRegistry } from "@core/skills"
+import { projectHash } from "@core/storage/paths"
 import { CalculatorTool } from "@core/tools/builtin/CalculatorTool"
 import { EditTool } from "@core/tools/builtin/EditTool"
 import { GlobTool } from "@core/tools/builtin/GlobTool"
 import { GrepTool } from "@core/tools/builtin/GrepTool"
 import { ReadTool } from "@core/tools/builtin/ReadTool"
+import { RecallTool } from "@core/tools/builtin/RecallTool"
+import { RememberTool } from "@core/tools/builtin/RememberTool"
 import { ShellTool } from "@core/tools/builtin/ShellTool"
 import { WriteTool } from "@core/tools/builtin/WriteTool"
 import { ToolRegistry } from "@core/tools/registry"
@@ -84,6 +88,8 @@ export function Session() {
   registry.register(WriteTool)
   registry.register(EditTool)
   registry.register(ShellTool)
+  registry.register(RememberTool)
+  registry.register(RecallTool)
   const mcp = new McpManager()
   onMount(async () => {
     try {
@@ -228,8 +234,12 @@ export function Session() {
   }
 
   const baseSystem = () => {
-    const block = skills.systemBlock()
-    return block ? `${SYSTEM_PROMPT}\n\n${block}` : SYSTEM_PROMPT
+    const parts = [SYSTEM_PROMPT]
+    const mem = memorySystemBlock(readIndex("global"), readIndex("project", projectHash(process.cwd())))
+    if (mem) parts.push(mem)
+    const skillBlock = skills.systemBlock()
+    if (skillBlock) parts.push(skillBlock)
+    return parts.join("\n\n")
   }
 
   function onAgentEvent(e: AgentEvent) {
@@ -481,12 +491,32 @@ export function Session() {
   const unregisterUndo = commands.register(undoCmd)
   const unregisterRedo = commands.register(redoCmd)
   const unregisterCheckpoints = commands.register(checkpointsCmd)
+  const rememberCmd: ActionCommand = {
+    kind: "action",
+    id: "session.remember",
+    name: "remember",
+    description: "Save a fact to this project's memory",
+    category: "Memory",
+    source: "builtin",
+    run(args, ctx) {
+      const fact = args.trim()
+      if (!fact) {
+        ctx.toast("Usage: /remember <fact>")
+        return
+      }
+      const title = fact.split(/\s+/).slice(0, 6).join(" ").slice(0, 40)
+      remember({ scope: "project", projectHash: projectHash(process.cwd()), title, fact })
+      ctx.toast(`Remembered: ${title}`)
+    },
+  }
+  const unregisterRemember = commands.register(rememberCmd)
   onCleanup(() => {
     unregisterClear()
     unregisterResume()
     unregisterUndo()
     unregisterRedo()
     unregisterCheckpoints()
+    unregisterRemember()
     commands.clearHostHooks(hostHooks)
   })
 
