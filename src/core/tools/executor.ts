@@ -10,6 +10,10 @@ export interface ExecutorContext {
   abort: AbortSignal
   ask: (tool: Tool, input: unknown) => Promise<PermissionDecision>
   rules?: PermissionRule[]
+  snapshot?: {
+    track(label: string): Promise<string | null>
+    revertTo(treeHash: string): Promise<void>
+  }
 }
 
 export async function executeTool(tool: Tool, rawInput: unknown, ctx: ExecutorContext): Promise<ToolResult> {
@@ -47,9 +51,16 @@ export async function executeTool(tool: Tool, rawInput: unknown, ctx: ExecutorCo
     return { output: `Permission denied for tool ${tool.name}`, isError: true }
   }
 
+  // Snapshot the worktree before a mutating tool so a failure can be reverted.
+  let preSnapshot: string | null = null
+  if (ctx.snapshot && !tool.isReadOnly(input)) {
+    preSnapshot = await ctx.snapshot.track(tool.name)
+  }
+
   try {
     return await tool.call(input, { abort: ctx.abort, cwd: ctx.cwd })
   } catch (e) {
+    if (ctx.snapshot && preSnapshot) await ctx.snapshot.revertTo(preSnapshot)
     return { output: `Tool ${tool.name} failed: ${e instanceof Error ? e.message : String(e)}`, isError: true }
   }
 }
