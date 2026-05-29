@@ -23,3 +23,34 @@ export async function loadAgents(dir: string): Promise<Map<string, LoadedAgent>>
   }
   return map
 }
+
+export interface DiscoverAgentsOptions {
+  builtinDir: string
+  userDir: string
+  projectDir: string
+}
+
+/** Discover agents with precedence project > user > builtin, deduped by name. */
+export async function discoverAgents(opts: DiscoverAgentsOptions): Promise<LoadedAgent[]> {
+  const builtin = await loadAgents(opts.builtinDir)
+  const user = await loadAgents(opts.userDir)
+  const project = await loadAgents(opts.projectDir)
+  const byName = new Map<string, LoadedAgent>()
+  for (const [name, a] of builtin) byName.set(name, a)
+  for (const [name, a] of user) byName.set(name, a)
+  for (const [name, a] of project) byName.set(name, a)
+  return [...byName.values()]
+}
+
+export class AgentRegistry {
+  private byName = new Map<string, LoadedAgent>()
+  constructor(agents: LoadedAgent[]) {
+    for (const a of agents) this.byName.set(a.name, a)
+  }
+  all(): LoadedAgent[] {
+    return [...this.byName.values()]
+  }
+  get(name: string): LoadedAgent | undefined {
+    return this.byName.get(name)
+  }
+}
