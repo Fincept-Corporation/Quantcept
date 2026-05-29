@@ -1,3 +1,4 @@
+import { loadHistory, pushHistory } from "@core/storage"
 import type { Command } from "@ext/commands/types"
 import { type BorderCharacters, defaultTextareaKeyBindings, type TextareaRenderable } from "@opentui/core"
 import { useRenderer } from "@opentui/solid"
@@ -91,7 +92,7 @@ export function Prompt(props: PromptProps) {
 
   // Submitted-prompt history for ↑/↓ recall (oldest → newest). `histState`
   // tracks where in history the user currently is (null = editing live draft).
-  const [history, setHistory] = createSignal<string[]>([])
+  const [history, setHistory] = createSignal<string[]>(loadHistory())
   let histState: HistoryState = { index: null }
 
   // Apply a recalled history entry to the input and move the cursor to the end.
@@ -125,6 +126,7 @@ export function Prompt(props: PromptProps) {
       // Record in history (skip if identical to the most recent entry) and reset
       // the navigation cursor back to "live draft".
       setHistory((h) => (h[h.length - 1] === text ? h : [...h, text]))
+      pushHistory(text)
       histState = { index: null }
       const slash = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text)
       if (slash) {
