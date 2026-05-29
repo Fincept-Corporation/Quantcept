@@ -29,7 +29,7 @@ function toolDefs(registry: ToolRegistry): ToolDefinition[] {
   return registry.list().map((t) => ({
     name: t.name,
     description: t.description,
-    inputSchema: z.toJSONSchema(t.inputSchema) as Record<string, unknown>,
+    inputSchema: t.inputJSONSchema ?? (z.toJSONSchema(t.inputSchema) as Record<string, unknown>),
   }))
 }
 

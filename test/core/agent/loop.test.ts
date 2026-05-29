@@ -70,4 +70,53 @@ describe("runAgentTurn", () => {
     })
     expect(result.totalTokens).toBe(22)
   })
+
+  test("toolDefs sends inputJSONSchema for MCP-style tools and z.toJSONSchema otherwise", async () => {
+    const reg = new ToolRegistry()
+    reg.register(
+      buildTool({
+        name: "ztool",
+        description: "z",
+        inputSchema: z.object({ a: z.number() }),
+        isReadOnly: () => true,
+        async call() {
+          return { output: 1 }
+        },
+      }),
+    )
+    reg.register({
+      name: "mcp__s__t",
+      description: "m",
+      inputSchema: z.object({}),
+      inputJSONSchema: { type: "object", properties: { p: { type: "string" } } },
+      isReadOnly: () => true,
+      isDestructive: () => false,
+      async call() {
+        return { output: 1 }
+      },
+    })
+
+    let seenTools: any[] = []
+    const provider: Provider = {
+      id: "fake",
+      async chat(req: ChatRequest): Promise<ChatResult> {
+        seenTools = (req.tools ?? []) as any[]
+        return { text: "done", inputTokens: 1, outputTokens: 1, stopReason: "end_turn" }
+      },
+    }
+
+    await runAgentTurn({
+      provider,
+      registry: reg,
+      messages: [{ role: "user", content: "hi" }],
+      mode: "allow",
+      cwd: "/",
+      ask: async () => "allow",
+    })
+
+    const mcpDef = seenTools.find((t) => t.name === "mcp__s__t")
+    const zDef = seenTools.find((t) => t.name === "ztool")
+    expect(mcpDef.inputSchema).toEqual({ type: "object", properties: { p: { type: "string" } } })
+    expect(zDef.inputSchema.type).toBe("object")
+  })
 })
