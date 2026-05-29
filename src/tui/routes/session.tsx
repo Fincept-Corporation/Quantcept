@@ -12,7 +12,9 @@ import { useCommands } from "@tui/context/command"
 import { useExit } from "@tui/context/exit"
 import { type SessionRoute, useRoute } from "@tui/context/route"
 import { useTheme } from "@tui/context/theme"
-import { chat, SYSTEM_PROMPT } from "@/llm"
+import { createProvider } from "@core/llm/provider"
+import { loadConfig } from "@core/config/load"
+import { SYSTEM_PROMPT } from "@core/agent/system"
 import { Sidebar } from "./sidebar"
 
 interface Message {
@@ -36,6 +38,8 @@ function formatTime(ts: number): string {
 
 export function Session() {
   const { theme } = useTheme()
+  const config = loadConfig()
+  const provider = createProvider(config.provider)
   const route = useRoute()
   const exit = useExit()
   const dimensions = useTerminalDimensions()
@@ -110,23 +114,24 @@ export function Session() {
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
     try {
-      const result = await chat(
-        history,
-        SYSTEM_PROMPT,
-        (chunk) => {
-          setMessages(
-            produce((msgs) => {
-              const last = msgs[msgs.length - 1]
-              if (last && last.role === "assistant") {
-                last.content += chunk
-              }
-            }),
-          )
-          renderer.requestRender()
-        },
-        (input, output) => {
-          setTokensLive(input + output)
-          renderer.requestRender()
+      const result = await provider.chat(
+        { messages: history, system: SYSTEM_PROMPT },
+        {
+          onChunk: (chunk) => {
+            setMessages(
+              produce((msgs) => {
+                const last = msgs[msgs.length - 1]
+                if (last && last.role === "assistant") {
+                  last.content += chunk
+                }
+              }),
+            )
+            renderer.requestRender()
+          },
+          onTokens: (input, output) => {
+            setTokensLive(input + output)
+            renderer.requestRender()
+          },
         },
       )
       setTokensPrev((p) => p + result.inputTokens + result.outputTokens)
