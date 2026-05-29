@@ -16,13 +16,14 @@ export interface Tool<Input extends z.ZodType = z.ZodType, Output = unknown> {
   description: string
   inputSchema: Input
   inputJSONSchema?: Record<string, unknown>
+  permissionPatterns?(input: z.infer<Input>): string[]
   isReadOnly(input: z.infer<Input>): boolean
   isDestructive(input: z.infer<Input>): boolean
   call(input: z.infer<Input>, ctx: ToolContext): Promise<ToolResult<Output>>
 }
 
 type ToolDef<I extends z.ZodType, O> = Pick<Tool<I, O>, "name" | "description" | "inputSchema" | "call"> &
-  Partial<Pick<Tool<I, O>, "isReadOnly" | "isDestructive">>
+  Partial<Pick<Tool<I, O>, "isReadOnly" | "isDestructive" | "permissionPatterns">>
 
 export function buildTool<I extends z.ZodType, O>(def: ToolDef<I, O>): Tool<I, O> {
   return {

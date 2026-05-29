@@ -50,3 +50,29 @@ describe("Tool.inputJSONSchema", () => {
     expect(t.inputJSONSchema).toEqual({ type: "object" })
   })
 })
+
+describe("Tool.permissionPatterns", () => {
+  test("buildTool leaves permissionPatterns undefined", () => {
+    const t = buildTool({
+      name: "x",
+      description: "",
+      inputSchema: z.object({}),
+      async call() {
+        return { output: 1 }
+      },
+    })
+    expect(t.permissionPatterns).toBeUndefined()
+  })
+  test("a Tool may define permissionPatterns", () => {
+    const t = buildTool({
+      name: "shellish",
+      description: "",
+      inputSchema: z.object({ command: z.string() }),
+      permissionPatterns: (input) => [input.command],
+      async call() {
+        return { output: 1 }
+      },
+    })
+    expect(t.permissionPatterns?.({ command: "git status" })).toEqual(["git status"])
+  })
+})
