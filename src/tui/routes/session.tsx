@@ -526,40 +526,46 @@ export function Session() {
     },
   }
   const unregisterRemember = commands.register(rememberCmd)
-  const agentCmd: ActionCommand = {
-    kind: "action",
-    id: "session.agent",
-    name: "agent",
-    description: "Switch the active agent persona (or: off | <name>)",
-    category: "Agents",
-    source: "builtin",
-    argChoices: [...agents.all().map((a) => a.name), "off"],
-    run(args, ctx) {
-      const arg = args.trim()
-      if (!arg) {
-        const list = agents.all()
-        ctx.toast(
-          list.length
-            ? `Agents:\n${list.map((a) => `- ${a.name}: ${a.description}`).join("\n")}\n\nUse /agent <name>.`
-            : "No agents available.",
-        )
-        return
-      }
-      if (arg === "off" || arg === "default") {
-        setActiveAgent(undefined)
-        ctx.toast("Back to the default assistant.")
-        return
-      }
-      const agent = agents.get(arg)
-      if (!agent) {
-        ctx.toast(`Unknown agent: ${arg}`)
-        return
-      }
-      setActiveAgent(agent)
-      ctx.toast(`Now acting as "${agent.name}"${agent.model ? ` (model: ${agent.model})` : ""}.`)
-    },
-  }
-  const unregisterAgent = commands.register(agentCmd)
+  // Re-register /agent reactively so its argChoices reflect discovered agent
+  // names once the (async) registry resolves — same pattern as the skill commands.
+  let unregisterAgent: (() => void) | undefined
+  createEffect(() => {
+    unregisterAgent?.()
+    const agentCmd: ActionCommand = {
+      kind: "action",
+      id: "session.agent",
+      name: "agent",
+      description: "Switch the active agent persona (or: off | <name>)",
+      category: "Agents",
+      source: "builtin",
+      argChoices: [...agents.all().map((a) => a.name), "off"],
+      run(args, ctx) {
+        const arg = args.trim()
+        if (!arg) {
+          const list = agents.all()
+          ctx.toast(
+            list.length
+              ? `Agents:\n${list.map((a) => `- ${a.name}: ${a.description}`).join("\n")}\n\nUse /agent <name>.`
+              : "No agents available.",
+          )
+          return
+        }
+        if (arg === "off" || arg === "default") {
+          setActiveAgent(undefined)
+          ctx.toast("Back to the default assistant.")
+          return
+        }
+        const agent = agents.get(arg)
+        if (!agent) {
+          ctx.toast(`Unknown agent: ${arg}`)
+          return
+        }
+        setActiveAgent(agent)
+        ctx.toast(`Now acting as "${agent.name}"${agent.model ? ` (model: ${agent.model})` : ""}.`)
+      },
+    }
+    unregisterAgent = commands.register(agentCmd)
+  })
   onCleanup(() => {
     unregisterClear()
     unregisterResume()
@@ -567,7 +573,7 @@ export function Session() {
     unregisterRedo()
     unregisterCheckpoints()
     unregisterRemember()
-    unregisterAgent()
+    unregisterAgent?.()
     commands.clearHostHooks(hostHooks)
   })
 
