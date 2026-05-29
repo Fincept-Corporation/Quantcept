@@ -5,6 +5,7 @@ import { resetLogFloor, setLogFloor } from "@shared/logger"
 import { BuddyProvider, useBuddy } from "@tui/buddy/BuddyContext"
 import { buddyCommands } from "@tui/buddy/buddy.commands"
 import { CommandPalette } from "@tui/components/command-palette"
+import { AgentsProvider } from "@tui/context/agents"
 import { type Args, ArgsProvider } from "@tui/context/args"
 import { CommandProvider, useCommands } from "@tui/context/command"
 import { createExit, type Exit, ExitProvider, useExit } from "@tui/context/exit"
@@ -128,9 +129,11 @@ async function mountApp(input: AppInput & { keymap: ReturnType<typeof createDefa
                             <DialogProvider>
                               <CommandProvider>
                                 <SkillsProvider>
-                                  <BuddyProvider>
-                                    <App />
-                                  </BuddyProvider>
+                                  <AgentsProvider>
+                                    <BuddyProvider>
+                                      <App />
+                                    </BuddyProvider>
+                                  </AgentsProvider>
                                 </SkillsProvider>
                               </CommandProvider>
                             </DialogProvider>
