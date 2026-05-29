@@ -19,6 +19,7 @@ import { createStore } from "solid-js/store"
 export interface CommandHostHooks {
   submitPrompt?: (text: string) => void
   clearMessages?: () => void
+  runSkill?: (skillName: string, args: string) => void
 }
 
 interface CommandContextValue {
@@ -69,6 +70,7 @@ export function CommandProvider(props: ParentProps) {
       source,
       submitPrompt: (text) => hostHooks.submitPrompt?.(text),
       clearMessages: () => hostHooks.clearMessages?.(),
+      runSkill: (skillName, args) => hostHooks.runSkill?.(skillName, args),
       navigate: (r) => route.navigate(r),
       setThemeMode: (m) => {
         theme.setMode(m)
