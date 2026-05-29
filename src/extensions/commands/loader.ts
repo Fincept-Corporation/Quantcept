@@ -1,4 +1,3 @@
-import { loadSkillFromDir } from "@core/skills/load"
 import { logger } from "@shared/logger"
 import fs from "fs/promises"
 import path from "path"
@@ -78,38 +77,6 @@ async function loadDir(dir: string, source: CommandSource): Promise<PromptComman
   return out
 }
 
-async function loadSkillsDir(dir: string): Promise<PromptCommand[]> {
-  let entries: string[]
-  try {
-    entries = await fs.readdir(dir)
-  } catch {
-    return []
-  }
-  const out: PromptCommand[] = []
-  for (const entry of entries) {
-    const skillDir = path.join(dir, entry)
-    try {
-      const stat = await fs.stat(skillDir)
-      if (!stat.isDirectory()) continue
-      const skill = await loadSkillFromDir(skillDir)
-      const template = skill.prompt
-      out.push({
-        kind: "prompt",
-        id: `skill:${skill.name}`,
-        name: skill.name,
-        description: skill.description,
-        source: "skill",
-        getPrompt(args) {
-          return substituteArgs(template, args)
-        },
-      })
-    } catch (error) {
-      logger.warn(`Skipping skill dir ${entry}: ${briefError(error)}`)
-    }
-  }
-  return out
-}
-
 export interface DiscoverOptions {
   userDir: string
   projectDir: string
@@ -117,13 +84,9 @@ export interface DiscoverOptions {
 
 export async function discoverFileCommands(opts: DiscoverOptions): Promise<Command[]> {
   const userCmds = await loadDir(path.join(opts.userDir, "commands"), "user")
-  const userSkills = await loadSkillsDir(path.join(opts.userDir, "skills"))
   const projectCmds = await loadDir(path.join(opts.projectDir, "commands"), "project")
-  const projectSkills = await loadSkillsDir(path.join(opts.projectDir, "skills"))
   const byName = new Map<string, Command>()
   for (const c of userCmds) byName.set(c.name, c)
-  for (const c of userSkills) byName.set(c.name, c)
   for (const c of projectCmds) byName.set(c.name, c)
-  for (const c of projectSkills) byName.set(c.name, c)
   return [...byName.values()]
 }
