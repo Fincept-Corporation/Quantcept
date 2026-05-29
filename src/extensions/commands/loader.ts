@@ -1,4 +1,4 @@
-import { loadSkillFromDir } from "@ext/skills/load"
+import { loadSkillFromDir } from "@core/skills/load"
 import { logger } from "@shared/logger"
 import fs from "fs/promises"
 import path from "path"

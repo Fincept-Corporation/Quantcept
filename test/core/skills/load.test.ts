@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { loadSkillFromDir } from "@ext/skills/load"
+import { loadSkillFromDir } from "@core/skills/load"
 import path from "path"
 
 describe("skill loader", () => {

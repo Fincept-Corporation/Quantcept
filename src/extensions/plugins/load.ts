@@ -1,5 +1,5 @@
-import { loadSkillFromDir } from "@ext/skills/load"
-import type { LoadedSkill } from "@ext/skills/manifest"
+import { loadSkillFromDir } from "@core/skills/load"
+import type { LoadedSkill } from "@core/skills/manifest"
 import { QuantceptError } from "@shared/errors"
 import fs from "fs/promises"
 import path from "path"
