@@ -1,5 +1,5 @@
-import { z } from "zod/v4"
 import { McpConfigSchema } from "@core/mcp/config"
+import { z } from "zod/v4"
 
 export const ProviderConfigSchema = z.object({
   id: z.enum(["anthropic-messages", "openai-chat"]),
