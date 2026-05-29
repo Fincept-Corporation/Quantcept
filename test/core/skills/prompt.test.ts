@@ -10,7 +10,6 @@ describe("skillsSystemBlock", () => {
     const block = skillsSystemBlock([
       { name: "market-brief", description: "Concise brief", prompt: "", dir: "" },
     ] as LoadedSkill[])
-    expect(block).toContain("market-brief: Concise brief")
-    expect(block).toContain("/market-brief")
+    expect(block).toContain("/market-brief — Concise brief")
   })
 })
