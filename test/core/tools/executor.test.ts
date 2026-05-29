@@ -52,3 +52,78 @@ describe("executeTool", () => {
     expect(received).toEqual({ foo: 1 })
   })
 })
+
+test("allow-rule on a pattern runs the tool without asking", async () => {
+  let asked = false
+  const t = buildTool({
+    name: "shell",
+    description: "",
+    inputSchema: z.object({ command: z.string() }),
+    isDestructive: () => true,
+    permissionPatterns: (i) => [i.command],
+    async call() {
+      return { output: "ran" }
+    },
+  })
+  const r = await executeTool(t, { command: "git status" }, {
+    mode: "ask",
+    cwd: "/",
+    abort: new AbortController().signal,
+    ask: async () => {
+      asked = true
+      return "allow"
+    },
+    rules: [{ permission: "shell", pattern: "git *", action: "allow" }],
+  })
+  expect(r.output).toBe("ran")
+  expect(asked).toBe(false)
+})
+
+test("deny-rule blocks without calling the tool", async () => {
+  let called = false
+  const t = buildTool({
+    name: "shell",
+    description: "",
+    inputSchema: z.object({ command: z.string() }),
+    isDestructive: () => true,
+    permissionPatterns: (i) => [i.command],
+    async call() {
+      called = true
+      return { output: "ran" }
+    },
+  })
+  const r = await executeTool(t, { command: "rm -rf /" }, {
+    mode: "allow",
+    cwd: "/",
+    abort: new AbortController().signal,
+    ask: async () => "allow",
+    rules: [{ permission: "shell", pattern: "rm *", action: "deny" }],
+  })
+  expect(r.isError).toBe(true)
+  expect(called).toBe(false)
+})
+
+test("no patterns + no rules → existing boolean behavior (regression)", async () => {
+  let asked = false
+  const t = buildTool({
+    name: "w",
+    description: "",
+    inputSchema: z.object({}),
+    isDestructive: () => true,
+    async call() {
+      return { output: "ran" }
+    },
+  })
+  const r = await executeTool(t, {}, {
+    mode: "ask",
+    cwd: "/",
+    abort: new AbortController().signal,
+    ask: async () => {
+      asked = true
+      return "allow"
+    },
+    rules: [],
+  })
+  expect(asked).toBe(true)
+  expect(r.output).toBe("ran")
+})

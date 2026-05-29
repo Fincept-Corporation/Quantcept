@@ -1,4 +1,6 @@
 import { checkPermission } from "@core/permissions/check"
+import type { PermissionRule } from "@core/permissions/rules"
+import { evaluate } from "@core/permissions/rules"
 import type { PermissionDecision, PermissionMode } from "@core/permissions/schema"
 import type { Tool, ToolResult } from "./Tool"
 
@@ -7,6 +9,7 @@ export interface ExecutorContext {
   cwd: string
   abort: AbortSignal
   ask: (tool: Tool, input: unknown) => Promise<PermissionDecision>
+  rules?: PermissionRule[]
 }
 
 export async function executeTool(tool: Tool, rawInput: unknown, ctx: ExecutorContext): Promise<ToolResult> {
@@ -22,10 +25,21 @@ export async function executeTool(tool: Tool, rawInput: unknown, ctx: ExecutorCo
     input = parsed.data
   }
 
-  const decision = checkPermission(
-    { isReadOnly: tool.isReadOnly(input), isDestructive: tool.isDestructive(input) },
-    ctx.mode,
-  )
+  const patterns = tool.permissionPatterns?.(input) ?? []
+  const rules = ctx.rules ?? []
+  let ruleDecision: PermissionDecision | undefined
+  for (const p of patterns) {
+    const d = evaluate(tool.name, p, rules)
+    if (d === "deny") {
+      ruleDecision = "deny"
+      break
+    }
+    if (d === "ask") ruleDecision = ruleDecision === undefined || ruleDecision === "allow" ? "ask" : ruleDecision
+    else if (d === "allow" && ruleDecision === undefined) ruleDecision = "allow"
+  }
+  const decision: PermissionDecision =
+    ruleDecision ??
+    checkPermission({ isReadOnly: tool.isReadOnly(input), isDestructive: tool.isDestructive(input) }, ctx.mode)
   let finalDecision: PermissionDecision = decision
   if (decision === "ask") finalDecision = await ctx.ask(tool, input)
 
