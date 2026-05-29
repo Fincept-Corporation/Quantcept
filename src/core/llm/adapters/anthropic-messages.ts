@@ -22,6 +22,14 @@ interface ToolUseAccum {
   inputJson: string
 }
 
+function safeParseJson(s: string): unknown {
+  try {
+    return JSON.parse(s)
+  } catch {
+    return {}
+  }
+}
+
 export function assembleStreamEvents(
   events: Array<Record<string, any>>,
   onChunk: (text: string) => void,
@@ -59,7 +67,12 @@ export function assembleStreamEvents(
 
   const blocks: ContentBlock[] = [...tools.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([, t]) => ({ type: "tool_use", id: t.id, name: t.name, input: t.inputJson ? JSON.parse(t.inputJson) : {} }))
+    .map(([, t]) => ({
+      type: "tool_use",
+      id: t.id,
+      name: t.name,
+      input: t.inputJson ? safeParseJson(t.inputJson) : {},
+    }))
   return { text, blocks, inputTokens, outputTokens, stopReason }
 }
 
