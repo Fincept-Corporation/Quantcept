@@ -10,7 +10,7 @@ import { createSimpleContext } from "./helper"
 import { useKV } from "./kv"
 
 type HexColor = string
-type ThemeColors = Record<string, HexColor>
+export type ThemeColors = Record<string, HexColor>
 
 interface ThemeJson {
   defs?: Record<string, string>
