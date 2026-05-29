@@ -19,4 +19,19 @@ describe("anthropic-messages adapter", () => {
   test("throws if apiKey missing", () => {
     expect(() => new AnthropicMessagesAdapter({ id: "anthropic-messages", model: "m", baseUrl: "https://x", maxTokens: 100, temperature: 0.5 })).toThrow()
   })
+
+  test("buildRequest translates ContentBlock[] and tools into wire format", () => {
+    const a = new AnthropicMessagesAdapter({ id: "anthropic-messages", model: "m", baseUrl: "https://x", apiKey: "k", maxTokens: 100, temperature: 0.5 })
+    const { body } = a.buildRequest({
+      messages: [
+        { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "calc", input: { a: 1 } }] },
+        { role: "user", content: [{ type: "tool_result", toolUseId: "t1", output: { r: 2 }, isError: false }] },
+      ],
+      tools: [{ name: "calc", description: "calc", inputSchema: { type: "object" } }],
+    })
+    const msgs = body.messages as any[]
+    expect(msgs[0].content).toEqual([{ type: "tool_use", id: "t1", name: "calc", input: { a: 1 } }])
+    expect(msgs[1].content).toEqual([{ type: "tool_result", tool_use_id: "t1", content: JSON.stringify({ r: 2 }), is_error: false }])
+    expect((body.tools as any[])[0]).toEqual({ name: "calc", description: "calc", input_schema: { type: "object" } })
+  })
 })

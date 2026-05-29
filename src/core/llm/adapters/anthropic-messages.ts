@@ -1,6 +1,20 @@
 import type { ProviderConfig } from "@core/config/schema"
 import { ProviderError } from "@shared/errors"
-import type { ChatRequest, ChatResult, Provider, StreamHandlers } from "../types"
+import type { ChatRequest, ChatResult, ContentBlock, Provider, StreamHandlers } from "../types"
+
+function toWireContent(content: string | ContentBlock[]): unknown {
+  if (typeof content === "string") return content
+  return content.map((b) => {
+    if (b.type === "text") return { type: "text", text: b.text }
+    if (b.type === "tool_use") return { type: "tool_use", id: b.id, name: b.name, input: b.input }
+    return {
+      type: "tool_result",
+      tool_use_id: b.toolUseId,
+      content: typeof b.output === "string" ? b.output : JSON.stringify(b.output),
+      is_error: b.isError,
+    }
+  })
+}
 
 export class AnthropicMessagesAdapter implements Provider {
   readonly id = "anthropic-messages"
@@ -19,9 +33,10 @@ export class AnthropicMessagesAdapter implements Provider {
       model: this.config.model,
       max_tokens: this.config.maxTokens,
       temperature: this.config.temperature,
-      messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
+      messages: req.messages.map((m) => ({ role: m.role, content: toWireContent(m.content) })),
       ...(req.system ? { system: req.system } : {}),
       ...(req.stream ? { stream: true } : {}),
+      ...(req.tools ? { tools: req.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema })) } : {}),
     }
     return { url, headers, body }
   }
