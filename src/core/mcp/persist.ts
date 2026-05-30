@@ -27,9 +27,11 @@ function writeSettings(file: string, data: unknown): void {
 export function writeServerToSettings(name: string, config: McpServer, cwd?: string): void {
   const file = projectSettingsFile(cwd)
   const settings = readSettings(file)
-  const mcp = (settings.mcp ??= {}) as { servers?: Record<string, unknown> }
-  const servers = (mcp.servers ??= {})
+  const mcp = (settings.mcp as { servers?: Record<string, unknown> } | undefined) ?? {}
+  const servers = mcp.servers ?? {}
   servers[name] = config
+  mcp.servers = servers
+  settings.mcp = mcp
   writeSettings(file, settings)
 }
 
