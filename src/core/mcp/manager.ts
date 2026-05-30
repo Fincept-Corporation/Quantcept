@@ -2,7 +2,7 @@ import type { ToolRegistry } from "@core/tools/registry"
 import { logger } from "@shared/logger"
 import { bridgeMcpTool } from "./bridge"
 import { McpClient } from "./client"
-import type { McpConfig, McpStdioServer } from "./config"
+import type { McpConfig, McpServer } from "./config"
 import type { McpToolDef } from "./types"
 
 // A connected client exposes just what the manager needs.
@@ -13,7 +13,7 @@ export interface ManagedClient {
   close(): Promise<void>
 }
 
-export type McpClientFactory = (serverName: string, config: McpStdioServer) => ManagedClient
+export type McpClientFactory = (serverName: string, config: McpServer) => ManagedClient
 
 const defaultFactory: McpClientFactory = (name, config) => new McpClient(name, config)
 
