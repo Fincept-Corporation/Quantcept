@@ -39,10 +39,10 @@ const InputSchema = z.object({
 const DESCRIPTION = [
   "Add (install) a new MCP server at runtime and register its tools immediately.",
   "Provide `name` plus either a stdio spec (`command` + optional `args`/`env`) or an http spec",
-  "(`type:\"http\"` + `url`, optional `headers`). Prefer `npx -y <package>` stdio servers or an",
-  "https url. Put secrets in headers as ${ENV_VAR} placeholders, never inline. You will be asked",
-  "to confirm the exact command/url before it connects. OAuth servers are added but require the",
-  "user to run /mcp auth afterwards.",
+  '(`type:"http"` + `url`, optional `headers`). Prefer `npx -y <package>` stdio servers or an',
+  "https url. Put secrets in headers as env-var placeholders in dollar-brace form, never inline.",
+  "You will be asked to confirm the exact command/url before it connects. OAuth servers are added",
+  "but require the user to run /mcp auth afterwards.",
 ].join(" ")
 
 function normalizeName(s: string): string {
