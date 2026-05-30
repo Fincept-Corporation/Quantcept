@@ -1,0 +1,9 @@
+{
+  "name": "gemini-sample",
+  "version": "0.1.0",
+  "description": "A gemini-cli format extension",
+  "contextFileName": "GEMINI.md",
+  "mcpServers": {
+    "g": { "url": "https://g.example.com/sse", "type": "sse" }
+  }
+}

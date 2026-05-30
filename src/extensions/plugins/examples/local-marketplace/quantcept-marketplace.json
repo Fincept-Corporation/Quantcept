@@ -1,0 +1,12 @@
+{
+  "name": "quantcept-examples",
+  "owner": { "name": "Quantcept" },
+  "description": "Bundled example marketplace shipped with Quantcept for trying the plugin system locally.",
+  "plugins": [
+    {
+      "name": "quantcept-sample",
+      "source": "../quantcept-sample",
+      "description": "Reference plugin: skill + command + agent + hook + MCP server."
+    }
+  ]
+}

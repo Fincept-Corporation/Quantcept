@@ -1,0 +1,8 @@
+{
+  "name": "sample-marketplace",
+  "owner": { "name": "Quantcept" },
+  "description": "A local sample marketplace for tests",
+  "plugins": [
+    { "name": "neutral-sample", "source": "../neutral-sample", "description": "every-surface demo plugin" }
+  ]
+}

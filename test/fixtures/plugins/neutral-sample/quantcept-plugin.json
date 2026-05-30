@@ -1,0 +1,13 @@
+{
+  "name": "neutral-sample",
+  "version": "1.0.0",
+  "description": "A neutral-format sample plugin exercising every surface",
+  "author": { "name": "Quantcept" },
+  "mcpServers": {
+    "echo": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/server.js"]
+    }
+  }
+}

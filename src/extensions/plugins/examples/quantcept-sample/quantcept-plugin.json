@@ -1,0 +1,16 @@
+{
+  "name": "quantcept-sample",
+  "version": "1.0.0",
+  "description": "Reference plugin exercising every Quantcept surface: a skill, a slash command, an agent, a hook, and an MCP server.",
+  "author": { "name": "Quantcept" },
+  "homepage": "https://github.com/Fincept-Corporation/Quantcept",
+  "license": "Apache-2.0",
+  "keywords": ["example", "reference", "finance"],
+  "mcpServers": {
+    "echo": {
+      "type": "stdio",
+      "command": "bun",
+      "args": ["${PLUGIN_ROOT}/mcp/echo-server.mjs"]
+    }
+  }
+}
