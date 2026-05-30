@@ -1,5 +1,6 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js"
+import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js"
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
@@ -19,10 +20,20 @@ interface LowLevelClient {
   close(): Promise<void>
 }
 
+interface FinishAuthTransport {
+  finishAuth?(code: string): Promise<void>
+}
+
 export type TransportKind = "stdio" | "http" | "sse"
 
 export type MakeClient = () => LowLevelClient
 export type MakeTransport = (kind: TransportKind, config: McpServer) => unknown
+
+// Name-based as well as instanceof: an UnauthorizedError can originate from the SDK's
+// own transport module, and bun's test runner can load the SDK class more than once.
+export function isUnauthorized(e: unknown): boolean {
+  return e instanceof UnauthorizedError || (e instanceof Error && e.name === "UnauthorizedError")
+}
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -47,6 +58,9 @@ const defaultMakeClient: MakeClient = () => {
 
 export class McpClient {
   private client?: LowLevelClient
+  // The most recently built transport. Retained even when connect throws UnauthorizedError
+  // so the OAuth code exchange (finishAuth) runs on the transport that began the flow.
+  private lastTransport?: unknown
   private readonly makeClient: MakeClient
   private readonly makeTransport: MakeTransport
 
@@ -55,7 +69,7 @@ export class McpClient {
     private readonly config: McpServer,
     makeClient: MakeClient = defaultMakeClient,
     makeTransport?: MakeTransport,
-    // Phase 3: supplied for http servers with auth:{type:"oauth"}; rides the transport.
+    // Supplied for http servers with auth:{type:"oauth"}; rides the transport.
     private readonly authProvider?: OAuthClientProvider,
   ) {
     this.makeClient = makeClient
@@ -86,10 +100,12 @@ export class McpClient {
   private async connectHttp(config: McpHttpServer): Promise<void> {
     if (config.transport === "sse") return this.connectVia("sse")
     if (config.transport === "http") return this.connectVia("http")
-    // "auto": modern Streamable HTTP first, fall back to legacy SSE on failure.
+    // "auto": modern Streamable HTTP first, fall back to legacy SSE on a transport error.
+    // An UnauthorizedError means the server is reachable but needs auth — never fall back.
     try {
       await this.connectVia("http")
     } catch (e) {
+      if (isUnauthorized(e)) throw e
       logger.warn("MCP Streamable HTTP failed; falling back to SSE", {
         server: this.serverName,
         error: String(e),
@@ -101,13 +117,24 @@ export class McpClient {
   private async connectVia(kind: TransportKind): Promise<void> {
     const client = this.makeClient()
     const transport = this.makeTransport(kind, this.config)
+    this.lastTransport = transport
     try {
       await withTimeout(client.connect(transport), this.config.timeout, "connect")
     } catch (e) {
-      await client.close().catch(() => {})
+      // Keep the transport reference for an OAuth finishAuth; only tear the client down on
+      // non-auth failures so an orphaned subprocess/socket isn't left behind.
+      if (!isUnauthorized(e)) await client.close().catch(() => {})
       throw e
     }
     this.client = client
+  }
+
+  // Exchange the OAuth authorization code on the transport that began the flow, then a
+  // subsequent connect() reads the freshly-saved tokens from the auth provider.
+  async finishAuth(code: string): Promise<void> {
+    const t = this.lastTransport as FinishAuthTransport | undefined
+    if (!t?.finishAuth) throw new ProviderError("active MCP transport does not support finishAuth")
+    await t.finishAuth(code)
   }
 
   async listTools(): Promise<McpToolDef[]> {
@@ -129,5 +156,6 @@ export class McpClient {
   async close(): Promise<void> {
     await this.client?.close()
     this.client = undefined
+    this.lastTransport = undefined
   }
 }
