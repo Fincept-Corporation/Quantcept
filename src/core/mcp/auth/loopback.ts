@@ -7,20 +7,13 @@ export interface LoopbackCapture {
   close(): void
 }
 
-export type CallbackOutcome =
-  | { kind: "code"; code: string }
-  | { kind: "error"; message: string }
-  | { kind: "ignore" }
+export type CallbackOutcome = { kind: "code"; code: string } | { kind: "error"; message: string } | { kind: "ignore" }
 
 // Pure decision logic for an incoming loopback request. Kept separate from Bun.serve so it
 // can be unit-tested directly (under `bun test`, Bun.serve with port:0 does not report the
 // real bound port, so a fetch-driven test of the live server is unreliable; the server glue
 // is exercised in manual dev instead).
-export function parseLoopbackCallback(
-  reqUrl: string,
-  callbackPath: string,
-  expectedState?: string,
-): CallbackOutcome {
+export function parseLoopbackCallback(reqUrl: string, callbackPath: string, expectedState?: string): CallbackOutcome {
   const url = new URL(reqUrl, "http://127.0.0.1")
   if (url.pathname !== callbackPath) return { kind: "ignore" }
 
