@@ -55,6 +55,9 @@ interface ServerRecord {
   client?: ManagedClient
   state: ServerState
   toolNames: string[]
+  // The last connect-failure detail (includes server stderr when available), surfaced to
+  // the caller of addServer so the agent can act on the real cause.
+  error?: string
 }
 
 export interface McpManagerDeps {
@@ -113,7 +116,9 @@ export class McpManager {
       rec.state = "connected"
       return true
     } catch (e) {
-      logger.warn("MCP server failed to start", { server: rec.name, error: String(e) })
+      const msg = e instanceof Error ? e.message : String(e)
+      rec.error = msg
+      logger.warn("MCP server failed to start", { server: rec.name, error: msg })
       rec.state = "failed"
       return false
     }
@@ -209,8 +214,9 @@ export class McpManager {
       await this.connectAndRegister(rec, this.makeClient(name, config))
     }
     if (rec.state === "failed") {
+      const detail = rec.error ? `: ${rec.error}` : ""
       this.records.delete(name) // don't leave a half-added, broken server behind
-      return { ok: false, message: `"${name}" failed to connect; not added` }
+      return { ok: false, message: `"${name}" failed to connect; not added${detail}` }
     }
     return {
       ok: true,

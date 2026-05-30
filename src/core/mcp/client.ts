@@ -35,6 +35,35 @@ export function isUnauthorized(e: unknown): boolean {
   return e instanceof UnauthorizedError || (e instanceof Error && e.name === "UnauthorizedError")
 }
 
+// A stdio MCP server that crashes on startup (bad config, a missing required env var) writes
+// the reason to its OWN stderr and exits; the SDK then only sees the stdio pipe close and
+// rejects connect() with a generic message, hiding the real cause. We wrap the transport's
+// start() to drain its stderr into a capped buffer so that cause can be folded into the error
+// the agent/user ultimately sees. Returns a getter for whatever was captured.
+function captureTransportStderr(transport: unknown): () => string {
+  const t = transport as {
+    start?: () => Promise<void>
+    stderr?: { on?: (event: string, cb: (chunk: unknown) => void) => void } | null
+  }
+  if (typeof t.start !== "function") return () => ""
+  let buf = ""
+  const MAX = 4000
+  const realStart = t.start.bind(t)
+  t.start = async () => {
+    try {
+      await realStart()
+    } finally {
+      // stderr exists only once the child is spawned (during start). A piped stream buffers
+      // data emitted before this listener attaches, so earlier output is not lost.
+      const s = t.stderr
+      s?.on?.("data", (chunk: unknown) => {
+        if (buf.length < MAX) buf += String(chunk)
+      })
+    }
+  }
+  return () => buf.trim().slice(0, MAX)
+}
+
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new ProviderError(`MCP ${label} timed out after ${ms}ms`)), ms)
@@ -118,12 +147,18 @@ export class McpClient {
     const client = this.makeClient()
     const transport = this.makeTransport(kind, this.config)
     this.lastTransport = transport
+    // stdio servers can crash on startup and only explain themselves on their own stderr.
+    const readStderr = kind === "stdio" ? captureTransportStderr(transport) : () => ""
     try {
       await withTimeout(client.connect(transport), this.config.timeout, "connect")
     } catch (e) {
       // Keep the transport reference for an OAuth finishAuth; only tear the client down on
       // non-auth failures so an orphaned subprocess/socket isn't left behind.
       if (!isUnauthorized(e)) await client.close().catch(() => {})
+      const stderr = readStderr()
+      if (stderr && !isUnauthorized(e)) {
+        throw new ProviderError(`${e instanceof Error ? e.message : String(e)} — server stderr: ${stderr}`)
+      }
       throw e
     }
     this.client = client
