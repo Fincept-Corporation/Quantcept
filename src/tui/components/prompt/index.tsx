@@ -51,6 +51,10 @@ interface PromptProps {
   status?: string
   messageCount?: number
   tokenCount?: number
+  /** Active agent name shown in the footer; undefined when on the default assistant. */
+  agent?: string
+  /** Cycle to the next agent — bound to Tab when the slash popover is closed. */
+  onAgentCycle?: () => void
 }
 
 export function Prompt(props: PromptProps) {
@@ -222,6 +226,12 @@ export function Prompt(props: PromptProps) {
                     return
                   }
                 }
+                // No slash popover open: Tab cycles the active agent (the "tab · agents" hint).
+                if (!args && slashResults().length === 0 && e.name === "tab") {
+                  e.preventDefault()
+                  props.onAgentCycle?.()
+                  return
+                }
                 if (slashResults().length > 0) {
                   if (e.name === "up") {
                     e.preventDefault()
@@ -300,7 +310,7 @@ export function Prompt(props: PromptProps) {
             {/* Agent / Model / Status row */}
             <box flexDirection="row" flexShrink={0} paddingTop={1} gap={1} justifyContent="space-between">
               <box flexDirection="row" gap={1}>
-                <text fg={theme.accent}>Analyst</text>
+                <text fg={theme.accent}>{props.agent ?? "Analyst"}</text>
                 <text fg={theme.textMuted}>·</text>
                 <text fg={theme.text}>Quantcept</text>
                 <text fg={theme.textMuted}>Pro</text>
@@ -342,10 +352,11 @@ export function Prompt(props: PromptProps) {
             customBorderChars={{ ...EmptyBorder, horizontal: "▀" }}
           />
         </box>
-        {/* Hints row */}
-        <box width="100%" flexDirection="row" justifyContent="space-between">
-          {props.hint ?? <text />}
-          <box gap={2} flexDirection="row">
+        {/* Hints row. Left tip shrinks/wraps (minWidth 0 defeats flex min-width:auto); the
+            keyboard hints are pinned (flexShrink 0) so they never clip on narrow terminals. */}
+        <box width="100%" flexDirection="row" justifyContent="space-between" gap={2}>
+          <box flexShrink={1} minWidth={0}>{props.hint ?? <text />}</box>
+          <box gap={2} flexDirection="row" flexShrink={0}>
             <text fg={theme.text}>
               tab <span style={{ fg: theme.textMuted }}>agents</span>
             </text>

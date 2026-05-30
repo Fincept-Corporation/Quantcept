@@ -1,13 +1,17 @@
 import { projectConfigDir, userConfigDir } from "@core/config/paths"
+import type { PluginCommand } from "@core/plugins"
+import { substituteArgs } from "@ext/commands/arguments"
 import { builtinCommands } from "@ext/commands/builtin"
 import { discoverFileCommands } from "@ext/commands/loader"
 import { rankCommands } from "@ext/commands/match"
-import type { Command, CommandRunContext, DispatchSource } from "@ext/commands/types"
+import type { Command, CommandRunContext, DispatchSource, PromptCommand } from "@ext/commands/types"
 import { commandBindings } from "@opentui/keymap/extras"
 import { reactiveMatcherFromSignal, useBindings, useKeymap } from "@opentui/keymap/solid"
 import { useRenderer } from "@opentui/solid"
+import { jobsCommand } from "@tui/commands/jobs"
 import { ThemePicker } from "@tui/components/theme-picker"
 import { useExit } from "@tui/context/exit"
+import { usePlugins } from "@tui/context/plugins"
 import { useRoute } from "@tui/context/route"
 import { useTheme } from "@tui/context/theme"
 import { COMMAND_PALETTE_COMMAND } from "@tui/keymap"
@@ -16,10 +20,25 @@ import { useToast } from "@tui/ui/toast"
 import { createContext, createMemo, createSignal, onMount, type ParentProps, useContext } from "solid-js"
 import { createStore } from "solid-js/store"
 
+/** A plugin-contributed command (already namespaced plugin:name) as a runnable PromptCommand. */
+function pluginToPromptCommand(pc: PluginCommand): PromptCommand {
+  return {
+    kind: "prompt",
+    id: `plugin:${pc.name}`,
+    name: pc.name,
+    description: pc.description ?? pc.name,
+    argumentHint: pc.argumentHint,
+    category: "Plugins",
+    source: "plugin",
+    getPrompt: (args) => substituteArgs(pc.body, args),
+  }
+}
+
 export interface CommandHostHooks {
   submitPrompt?: (text: string) => void
   clearMessages?: () => void
   runSkill?: (skillName: string, args: string) => void
+  reloadComputerUse?: () => void
 }
 
 interface CommandContextValue {
@@ -51,6 +70,7 @@ export function CommandProvider(props: ParentProps) {
   const exit = useExit()
   const keymap = useKeymap()
   const renderer = useRenderer()
+  const plugins = usePlugins()
 
   const [dynamic, setDynamic] = createStore<Command[]>([])
   const [fileCmds, setFileCmds] = createSignal<Command[]>([])
@@ -62,7 +82,14 @@ export function CommandProvider(props: ParentProps) {
     setFileCmds(cmds)
   })
 
-  const allCommands = createMemo<Command[]>(() => [...builtinCommands(), ...fileCmds(), ...dynamic])
+  const pluginCmds = createMemo<Command[]>(() => plugins.commands().map(pluginToPromptCommand))
+  const allCommands = createMemo<Command[]>(() => [
+    ...builtinCommands(),
+    jobsCommand(),
+    ...fileCmds(),
+    ...pluginCmds(),
+    ...dynamic,
+  ])
 
   function buildRunContext(args: string, source: DispatchSource): CommandRunContext {
     return {
@@ -89,6 +116,7 @@ export function CommandProvider(props: ParentProps) {
       showDialog: (render) => dialog.replace(render),
       closeDialog: () => dialog.clear(),
       toast: (message) => toast.show({ message, variant: "info" }),
+      reloadComputerUse: () => hostHooks.reloadComputerUse?.(),
       exit: () => void exit(),
       query: (search) => query(search),
     }

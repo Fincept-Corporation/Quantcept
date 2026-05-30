@@ -6,6 +6,7 @@ export const IncomeStatementTool = buildTool({
   name: "income_statement",
   description: "Fetch the annual income statement for a stock ticker via yfinance.",
   inputSchema: z.object({ ticker: z.string() }),
+  effectClass: "read",
   isReadOnly: () => true,
   async call(input) {
     const r = await runYfinance(input.ticker, "income")

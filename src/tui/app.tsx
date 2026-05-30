@@ -10,6 +10,7 @@ import { type Args, ArgsProvider } from "@tui/context/args"
 import { CommandProvider, useCommands } from "@tui/context/command"
 import { createExit, type Exit, ExitProvider, useExit } from "@tui/context/exit"
 import { KVProvider } from "@tui/context/kv"
+import { PluginsProvider } from "@tui/context/plugins"
 import { RouteProvider, useRoute } from "@tui/context/route"
 import { SkillsProvider } from "@tui/context/skills"
 import { SnapshotProvider } from "@tui/context/snapshot"
@@ -127,15 +128,17 @@ async function mountApp(input: AppInput & { keymap: ReturnType<typeof createDefa
                         <ThemeProvider mode={mode}>
                           <ToastProvider>
                             <DialogProvider>
-                              <CommandProvider>
-                                <SkillsProvider>
-                                  <AgentsProvider>
-                                    <BuddyProvider>
-                                      <App />
-                                    </BuddyProvider>
-                                  </AgentsProvider>
-                                </SkillsProvider>
-                              </CommandProvider>
+                              <PluginsProvider>
+                                <CommandProvider>
+                                  <SkillsProvider>
+                                    <AgentsProvider>
+                                      <BuddyProvider>
+                                        <App />
+                                      </BuddyProvider>
+                                    </AgentsProvider>
+                                  </SkillsProvider>
+                                </CommandProvider>
+                              </PluginsProvider>
                             </DialogProvider>
                           </ToastProvider>
                         </ThemeProvider>

@@ -1,5 +1,6 @@
 import { createTextAttributes } from "@opentui/core"
 import { Show } from "solid-js"
+import { summarizeToolOutput } from "./tool-summary"
 
 const BOLD = createTextAttributes({ bold: true })
 
@@ -7,13 +8,16 @@ export function ToolMessage(props: {
   name: string
   status: "running" | "done"
   output?: unknown
+  title?: string
   isError?: boolean
   theme: any
 }) {
+  // Show a short label, not the raw payload: the tool's own `title` when set,
+  // otherwise a condensed one-line summary of the output.
   const summary = () => {
-    if (props.status === "running") return "running…"
-    if (props.isError) return typeof props.output === "string" ? props.output : "error"
-    return typeof props.output === "string" ? props.output : JSON.stringify(props.output)
+    if (props.status === "running") return "fetching…"
+    if (!props.isError && props.title) return props.title
+    return summarizeToolOutput(props.output, props.isError)
   }
   const glyph = () => (props.status === "running" ? "⟳" : props.isError ? "✗" : "⊙")
   const color = () => (props.isError ? props.theme.error : props.theme.accent)

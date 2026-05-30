@@ -119,4 +119,101 @@ describe("runAgentTurn", () => {
     expect(mcpDef.inputSchema).toEqual({ type: "object", properties: { p: { type: "string" } } })
     expect(zDef.inputSchema.type).toBe("object")
   })
+
+  test("threads a tool's returned image onto the tool_result block", async () => {
+    const reg = new ToolRegistry()
+    reg.register(
+      buildTool({
+        name: "shot",
+        description: "",
+        inputSchema: z.object({}),
+        isReadOnly: () => true,
+        async call() {
+          return { output: "captured", image: { mediaType: "image/png", data: "PNGB64" } }
+        },
+      }),
+    )
+    let calls = 0
+    const provider: Provider = {
+      id: "fake",
+      async chat(_req: ChatRequest): Promise<ChatResult> {
+        calls++
+        if (calls === 1)
+          return {
+            text: "",
+            blocks: [{ type: "tool_use", id: "t1", name: "shot", input: {} }],
+            inputTokens: 1,
+            outputTokens: 1,
+            stopReason: "tool_use",
+          }
+        return { text: "done", inputTokens: 1, outputTokens: 1, stopReason: "end_turn" }
+      },
+    }
+
+    const result = await runAgentTurn({
+      provider,
+      registry: reg,
+      messages: [{ role: "user", content: "shot" }],
+      mode: "allow",
+      cwd: "/",
+      ask: async () => "allow",
+    })
+
+    const trMsg = result.messages.find(
+      (m) => Array.isArray(m.content) && (m.content as any[]).some((b) => b.type === "tool_result"),
+    )
+    const block = (trMsg?.content as any[]).find((b) => b.type === "tool_result")
+    expect(block.image).toEqual({ mediaType: "image/png", data: "PNGB64" })
+  })
+
+  test("routes image-bearing turns to the vision provider", async () => {
+    const reg = new ToolRegistry()
+    reg.register(
+      buildTool({
+        name: "shot",
+        description: "",
+        inputSchema: z.object({}),
+        isReadOnly: () => true,
+        async call() {
+          return { output: "shot", image: { mediaType: "image/png", data: "P" } }
+        },
+      }),
+    )
+    let primaryCalls = 0
+    let visionCalls = 0
+    const primary: Provider = {
+      id: "primary",
+      async chat(): Promise<ChatResult> {
+        primaryCalls++
+        return {
+          text: "",
+          blocks: [{ type: "tool_use", id: "t1", name: "shot", input: {} }],
+          inputTokens: 1,
+          outputTokens: 1,
+          stopReason: "tool_use",
+        }
+      },
+    }
+    const vision: Provider = {
+      id: "vision",
+      async chat(): Promise<ChatResult> {
+        visionCalls++
+        return { text: "seen", inputTokens: 1, outputTokens: 1, stopReason: "end_turn" }
+      },
+    }
+
+    const result = await runAgentTurn({
+      provider: primary,
+      visionProvider: vision,
+      registry: reg,
+      messages: [{ role: "user", content: "look" }],
+      mode: "allow",
+      cwd: "/",
+      ask: async () => "allow",
+    })
+
+    expect(result.text).toBe("seen")
+    expect(primaryCalls).toBe(1) // only the first, pre-image call
+    expect(visionCalls).toBe(1) // the post-image turn routed to vision
+  })
 })

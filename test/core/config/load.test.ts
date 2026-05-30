@@ -18,4 +18,10 @@ describe("config merge", () => {
     expect(merged.provider.baseUrl).toBe("env-url")
     expect(merged.provider.apiKey).toBe("env-key")
   })
+
+  test("OPENAI_API_KEY fills the visionProvider key when not set in config", () => {
+    const cfg = { ...defaultConfig, visionProvider: { id: "openai-chat", model: "gpt-4o", baseUrl: "https://api.openai.com/v1", maxTokens: 1024, temperature: 0 } as const }
+    const merged = applyEnvOverrides(cfg, { OPENAI_API_KEY: "sk-vision" })
+    expect(merged.visionProvider?.apiKey).toBe("sk-vision")
+  })
 })

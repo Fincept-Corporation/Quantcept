@@ -24,8 +24,18 @@ export function sessionsDir(projectHashValue: string): string {
 export function sessionFile(projectHashValue: string, sessionId: string): string {
   return path.join(sessionsDir(projectHashValue), `${sessionId}.jsonl`)
 }
+export function jobsDir(projectHashValue: string): string {
+  return path.join(dataDir(), "jobs", projectHashValue)
+}
+export function jobFile(projectHashValue: string, jobId: string): string {
+  return path.join(jobsDir(projectHashValue), `${jobId}.jsonl`)
+}
 export function promptHistoryFile(): string {
   return path.join(stateDir(), "prompt-history.jsonl")
+}
+/** Append-only external-action (order) audit log for a project. */
+export function riskAuditFile(projectHashValue: string): string {
+  return path.join(dataDir(), "risk", projectHashValue, "audit.jsonl")
 }
 
 /** Create a directory (and parents) if missing. Idempotent. */

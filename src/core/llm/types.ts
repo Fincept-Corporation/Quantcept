@@ -1,7 +1,13 @@
+/** A base64-encoded image (e.g. a screenshot returned by the computer-use tool). */
+export interface ImageData {
+  mediaType: string
+  data: string
+}
+
 export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
-  | { type: "tool_result"; toolUseId: string; output: unknown; isError: boolean }
+  | { type: "tool_result"; toolUseId: string; output: unknown; isError: boolean; image?: ImageData }
 
 export interface ChatMessage {
   role: "user" | "assistant"

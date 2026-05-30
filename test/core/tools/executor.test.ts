@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { z } from "zod/v4"
 import { buildTool, type Tool } from "@core/tools/Tool"
 import { executeTool } from "@core/tools/executor"
+import { readOnlyPolicy, tradingPolicy } from "@core/tools/policy"
 
 const echo = buildTool({
   name: "echo",
@@ -152,6 +153,109 @@ test("all-or-ask: an unmatched sibling pattern forces ask (no smuggling)", async
   })
   expect(asked).toBe(true)
   expect(r.isError).toBe(true)
+})
+
+// --- effectPolicy (graded reference monitor) tests ---
+const policyBaseCtx = {
+  mode: "allow" as const, cwd: process.cwd(), abort: new AbortController().signal,
+  ask: async () => "allow" as const,
+}
+const policyWriter = buildTool({
+  name: "writer", description: "", inputSchema: z.object({}),
+  call: async () => ({ output: "wrote" }),
+})
+
+test("readOnlyPolicy denies a write tool", async () => {
+  const r = await executeTool(policyWriter, {}, { ...policyBaseCtx, effectPolicy: readOnlyPolicy() })
+  expect(r.isError).toBe(true)
+  expect(String(r.output)).toContain("policy forbids")
+})
+test("readOnlyPolicy allows a read tool", async () => {
+  const reader = buildTool({
+    name: "reader2", description: "", inputSchema: z.object({}),
+    isReadOnly: () => true, call: async () => ({ output: "ok" }),
+  })
+  const r = await executeTool(reader, {}, { ...policyBaseCtx, effectPolicy: readOnlyPolicy() })
+  expect(r.isError).toBeFalsy()
+  expect(r.output).toBe("ok")
+})
+test("gate + ask→deny blocks with needsHuman and does NOT call the tool", async () => {
+  let called = false
+  const irreversible = buildTool({
+    name: "place_order", description: "", inputSchema: z.object({}), effectClass: "irreversible",
+    call: async () => { called = true; return { output: "filled" } },
+  })
+  const r = await executeTool(irreversible, {}, {
+    ...policyBaseCtx, effectPolicy: tradingPolicy(), ask: async () => "deny",
+  })
+  expect(r.needsHuman).toBe(true)
+  expect(r.isError).toBe(true)
+  expect(called).toBe(false)
+})
+test("gate + ask→allow runs the tool and returns its output", async () => {
+  let called = false
+  const irreversible = buildTool({
+    name: "place_order", description: "", inputSchema: z.object({}), effectClass: "irreversible",
+    call: async () => { called = true; return { output: "filled" } },
+  })
+  const r = await executeTool(irreversible, {}, {
+    ...policyBaseCtx, effectPolicy: tradingPolicy(), ask: async () => "allow",
+  })
+  expect(r.isError).toBeFalsy()
+  expect(r.output).toBe("filled")
+  expect(called).toBe(true)
+})
+
+// --- riskGate (hard, non-approvable pre-trade limit) tests ---
+test("riskGate failure HARD-blocks a write tool: isError, NOT needsHuman, call not invoked", async () => {
+  let called = false
+  const orderTool = buildTool({
+    name: "place_order", description: "", inputSchema: z.object({}), effectClass: "irreversible",
+    call: async () => { called = true; return { output: "filled" } },
+  })
+  const r = await executeTool(orderTool, {}, {
+    ...policyBaseCtx,
+    effectPolicy: tradingPolicy(),
+    // gate would normally ask a human and ask→allow; the risk deny must win FIRST.
+    ask: async () => "allow",
+    riskGate: () => ({ ok: false, violation: "maxOrderNotional", detail: "notional 999 > cap 100" }),
+  })
+  expect(r.isError).toBe(true)
+  expect(r.needsHuman).toBeFalsy()
+  expect(String(r.output)).toContain("risk limit")
+  expect(String(r.output)).toContain("notional 999 > cap 100")
+  expect(called).toBe(false)
+})
+
+test("riskGate { ok:true } lets a write tool proceed", async () => {
+  let called = false
+  const orderTool = buildTool({
+    name: "place_order", description: "", inputSchema: z.object({}),
+    call: async () => { called = true; return { output: "filled" } },
+  })
+  const r = await executeTool(orderTool, {}, {
+    ...policyBaseCtx,
+    riskGate: () => ({ ok: true }),
+  })
+  expect(r.isError).toBeFalsy()
+  expect(r.output).toBe("filled")
+  expect(called).toBe(true)
+})
+
+test("riskGate only governs NON-read effects: a read tool with a failing gate is NOT blocked", async () => {
+  let called = false
+  const reader = buildTool({
+    name: "get_quote", description: "", inputSchema: z.object({}),
+    isReadOnly: () => true,
+    call: async () => { called = true; return { output: "quote" } },
+  })
+  const r = await executeTool(reader, {}, {
+    ...policyBaseCtx,
+    riskGate: () => ({ ok: false, violation: "buyingPower", detail: "should be ignored for reads" }),
+  })
+  expect(r.isError).toBeFalsy()
+  expect(r.output).toBe("quote")
+  expect(called).toBe(true)
 })
 
 test("all-allow patterns run without asking", async () => {

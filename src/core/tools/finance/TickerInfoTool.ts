@@ -7,6 +7,7 @@ export const TickerInfoTool = buildTool({
   description:
     "Fetch company info for a stock ticker (name, sector, market cap, P/E, dividend yield, 52-week range, price) via yfinance.",
   inputSchema: z.object({ ticker: z.string() }),
+  effectClass: "read",
   isReadOnly: () => true,
   async call(input) {
     const r = await runYfinance(input.ticker, "info")

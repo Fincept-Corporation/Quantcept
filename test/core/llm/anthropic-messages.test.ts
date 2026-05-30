@@ -59,4 +59,59 @@ describe("anthropic-messages adapter", () => {
     const r = assembleStreamEvents(events, () => {})
     expect(r.blocks).toEqual([{ type: "tool_use", id: "t1", name: "calc", input: {} }])
   })
+
+  test("buildRequest serializes an image-bearing tool_result into a content array with a base64 image block", () => {
+    const a = new AnthropicMessagesAdapter({ id: "anthropic-messages", model: "m", baseUrl: "https://x", apiKey: "k", maxTokens: 100, temperature: 0.5 })
+    const { body } = a.buildRequest({
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              toolUseId: "t1",
+              output: "screenshot captured",
+              isError: false,
+              image: { mediaType: "image/png", data: "BASE64DATA" },
+            },
+          ],
+        },
+      ],
+    })
+    const msgs = body.messages as any[]
+    expect(msgs[0].content).toEqual([
+      {
+        type: "tool_result",
+        tool_use_id: "t1",
+        is_error: false,
+        content: [
+          { type: "text", text: "screenshot captured" },
+          { type: "image", source: { type: "base64", media_type: "image/png", data: "BASE64DATA" } },
+        ],
+      },
+    ])
+  })
+
+  test("buildRequest emits an image-only tool_result content array when output text is empty", () => {
+    const a = new AnthropicMessagesAdapter({ id: "anthropic-messages", model: "m", baseUrl: "https://x", apiKey: "k", maxTokens: 100, temperature: 0.5 })
+    const { body } = a.buildRequest({
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "tool_result", toolUseId: "t2", output: "", isError: false, image: { mediaType: "image/png", data: "ABC" } },
+          ],
+        },
+      ],
+    })
+    const msgs = body.messages as any[]
+    expect(msgs[0].content).toEqual([
+      {
+        type: "tool_result",
+        tool_use_id: "t2",
+        is_error: false,
+        content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "ABC" } }],
+      },
+    ])
+  })
 })

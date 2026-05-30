@@ -1,36 +1,39 @@
 import { createTextAttributes, RGBA, type SyntaxStyle } from "@opentui/core"
-import { useRenderer, useTerminalDimensions } from "@opentui/solid"
+import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { batch, createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 
 const BOLD = createTextAttributes({ bold: true })
 
+import { appendFileSync, mkdirSync } from "node:fs"
+import nodePath from "node:path"
 import type { LoadedAgent } from "@core/agent/agent-manifest"
 import type { AgentEvent } from "@core/agent/events"
 import { runAgentTurn } from "@core/agent/loop"
+import { registerBuiltinTools } from "@core/agent/registry"
 import { SYSTEM_PROMPT } from "@core/agent/system"
 import { createTaskTool } from "@core/agent/task-tool"
 import { loadConfig } from "@core/config/load"
+import { HookRegistry } from "@core/hooks/registry"
+import { runHooks } from "@core/hooks/runner"
+import type { HookRunner } from "@core/hooks/types"
+import { JobStore } from "@core/jobs"
+import { createListJobsTool, createScheduleJobTool } from "@core/jobs/JobControlTool"
+import { stripStrayCJK } from "@core/llm/normalize"
 import { createProvider } from "@core/llm/provider"
+import { McpServerSchema } from "@core/mcp/config"
 import { McpManager } from "@core/mcp/manager"
+import { removeServerFromSettings, writeServerToSettings } from "@core/mcp/persist"
+import { createAddMcpServerTool } from "@core/tools/builtin/AddMcpServerTool"
 import { memorySystemBlock, readIndex, remember } from "@core/memory"
 import type { PermissionDecision } from "@core/permissions/schema"
 import { filterRegistry } from "@core/skills"
 import { projectHash } from "@core/storage/paths"
-import { CalculatorTool } from "@core/tools/builtin/CalculatorTool"
-import { EditTool } from "@core/tools/builtin/EditTool"
-import { GlobTool } from "@core/tools/builtin/GlobTool"
-import { GrepTool } from "@core/tools/builtin/GrepTool"
-import { ReadTool } from "@core/tools/builtin/ReadTool"
-import { RecallTool } from "@core/tools/builtin/RecallTool"
-import { RememberTool } from "@core/tools/builtin/RememberTool"
-import { ShellTool } from "@core/tools/builtin/ShellTool"
-import { WriteTool } from "@core/tools/builtin/WriteTool"
-import { BalanceSheetTool } from "@core/tools/finance/BalanceSheetTool"
-import { CashflowTool } from "@core/tools/finance/CashflowTool"
-import { IncomeStatementTool } from "@core/tools/finance/IncomeStatementTool"
-import { PriceHistoryTool } from "@core/tools/finance/PriceHistoryTool"
-import { TickerInfoTool } from "@core/tools/finance/TickerInfoTool"
+import { createComputerUseAgentTool } from "@core/tools/computeruse/ComputerUseAgentTool"
+import { createComputerUseTool } from "@core/tools/computeruse/ComputerUseTool"
+import { resolveSidecarBinary } from "@core/tools/computeruse/resolveBinary"
+import { SpawnSidecarClient } from "@core/tools/computeruse/SpawnSidecarClient"
+import { effectClassOf } from "@core/tools/effects"
 import { ToolRegistry } from "@core/tools/registry"
 import { detectShell } from "@core/tools/shell/detect"
 import { formatApproval } from "@core/tools/shell/format"
@@ -39,19 +42,28 @@ import type { Tool } from "@core/tools/Tool"
 import type { ActionCommand } from "@ext/commands/types"
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { useBuddy } from "@tui/buddy/BuddyContext"
+import { DiagramBlock } from "@tui/components/DiagramBlock"
 import { Prompt } from "@tui/components/prompt"
 import { ToolMessage } from "@tui/components/tool-message"
 import { useAgents } from "@tui/context/agents"
 import { useCommands } from "@tui/context/command"
 import { useExit } from "@tui/context/exit"
+import { usePlugins } from "@tui/context/plugins"
 import { type SessionRoute, useRoute } from "@tui/context/route"
 import { useSkills } from "@tui/context/skills"
 import { useSnapshot } from "@tui/context/snapshot"
 import { useStorage } from "@tui/context/storage"
 import { type ThemeColors, useTheme } from "@tui/context/theme"
+import { createCoalescer } from "@tui/markdown/coalesce"
+import { splitDiagramSegments } from "@tui/markdown/segments"
+import { StreamingMarkdown } from "@tui/markdown/StreamingMarkdown"
+import { markdownToPlainText } from "@tui/markdown/toPlainText"
+import { copyToClipboard } from "@tui/platform/clipboard"
 import { buildSyntaxStyle } from "@tui/themes/syntax-style"
 import { useDialog } from "@tui/ui/dialog"
 import { DialogConfirm } from "@tui/ui/dialog-confirm"
+import { useToast } from "@tui/ui/toast"
+import { autoApproveLabel, isAutoApproveToggle } from "./auto-approve"
 import { Sidebar } from "./sidebar"
 
 interface Message {
@@ -62,6 +74,7 @@ interface Message {
   toolName?: string
   toolStatus?: "running" | "done"
   toolOutput?: unknown
+  toolTitle?: string
   toolIsError?: boolean
 }
 
@@ -77,6 +90,53 @@ function formatTime(ts: number): string {
   return `${h}:${m}`
 }
 
+const COMPUTER_USE_AUDIT = nodePath.join(process.cwd(), ".quantcept", "computeruse-audit.log")
+function appendComputerUseAudit(line: string): void {
+  try {
+    mkdirSync(nodePath.dirname(COMPUTER_USE_AUDIT), { recursive: true })
+    appendFileSync(COMPUTER_USE_AUDIT, `${line}\n`)
+  } catch {
+    // audit is best-effort; never break the loop over a logging failure
+  }
+}
+
+/**
+ * Register the computer-use tool if (and only if) a vision provider is configured AND the
+ * sidecar binary is present — otherwise computer-use stays cleanly disabled. Returns the
+ * live sidecar client + the constructed vision provider for the loop to route image turns to.
+ */
+function setupComputerUse(registry: ToolRegistry, config: ReturnType<typeof loadConfig>) {
+  const vp = config.visionProvider
+  if (!vp) return null
+  const bin = resolveSidecarBinary()
+  if (!bin) return null
+  const client = new SpawnSidecarClient(bin)
+
+  // Best path: OpenAI GA computer-use (gpt-5.5, pixel-grounded) via the self-contained
+  // `computerUse` agent tool — the primary model just delegates the whole GUI task to it.
+  const isOpenAI = vp.id === "openai-chat" && (vp.baseUrl?.includes("openai.com") ?? false)
+  if (isOpenAI && vp.apiKey) {
+    registry.register(
+      createComputerUseAgentTool({ sidecar: client, apiKey: vp.apiKey, model: "gpt-5.5", onAudit: appendComputerUseAudit }),
+    )
+    return { client, visionProvider: undefined as ReturnType<typeof createProvider> | undefined }
+  }
+
+  // Fallback (non-OpenAI vision, e.g. local Ollama): the grid Set-of-Marks `computer` tool,
+  // driven step-by-step by the configured vision provider via the loop's image routing.
+  let visionProvider: ReturnType<typeof createProvider>
+  try {
+    visionProvider = createProvider(vp)
+  } catch {
+    void client.dispose()
+    return null // misconfigured vision provider (e.g. missing key) → stay disabled
+  }
+  registry.register(
+    createComputerUseTool({ client, captureLimits: { maxLongEdge: 1024 }, onAudit: appendComputerUseAudit }),
+  )
+  return { client, visionProvider }
+}
+
 export function Session() {
   const { theme } = useTheme()
   const buddy = useBuddy()
@@ -84,6 +144,11 @@ export function Session() {
   const snapshot = useSnapshot()
   const skills = useSkills()
   const agents = useAgents()
+  const plugins = usePlugins()
+  // Plugin hooks + extra context, populated once enabled plugins load (see the MCP onMount below).
+  const [pluginHooks, setPluginHooks] = createSignal<HookRegistry>(new HookRegistry())
+  const [pluginContext, setPluginContext] = createSignal("")
+  const hookRunner: HookRunner = { fire: (event) => runHooks(pluginHooks(), event) }
   const [activeAgent, setActiveAgent] = createSignal<LoadedAgent | undefined>(undefined)
   const config = loadConfig()
   const activeProvider = () => {
@@ -91,26 +156,57 @@ export function Session() {
     return createProvider({ ...config.provider, model })
   }
   const registry = new ToolRegistry()
-  registry.register(CalculatorTool)
-  registry.register(ReadTool)
-  registry.register(GlobTool)
-  registry.register(GrepTool)
-  registry.register(WriteTool)
-  registry.register(EditTool)
-  registry.register(ShellTool)
-  registry.register(RememberTool)
-  registry.register(RecallTool)
-  registry.register(TickerInfoTool)
-  registry.register(IncomeStatementTool)
-  registry.register(BalanceSheetTool)
-  registry.register(CashflowTool)
-  registry.register(PriceHistoryTool)
+  // Single source of truth for the builtin + finance tool list (shared with the jobs runner).
+  registerBuiltinTools(registry)
+  let computerUse = setupComputerUse(registry, config)
+  onCleanup(() => {
+    const cu = computerUse
+    if (cu) void cu.client.releaseAll().finally(() => void cu.client.dispose())
+  })
+  // Re-apply computer-use config live (e.g. after `/computer-use <key>`) — no restart needed.
+  function reloadComputerUse(): void {
+    const old = computerUse
+    registry.unregister("computerUse")
+    registry.unregister("computer")
+    if (old) {
+      void old.client
+        .releaseAll()
+        .catch(() => {})
+        .finally(() => void old.client.dispose())
+    }
+    computerUse = setupComputerUse(registry, loadConfig())
+  }
   const mcp = new McpManager()
+  // The agent can add (install) MCP servers at runtime via this tool; it always prompts for
+  // approval (see AddMcpServerTool's permission pattern) and persists to project settings.json.
+  registry.register(createAddMcpServerTool({ manager: mcp, cwd: process.cwd() }))
+  // The agent can inspect + schedule autonomous jobs from chat. `schedule_job` is a write, so it
+  // goes through the normal approval gate; it always creates read-only jobs (runaway guard).
+  const jobStore = new JobStore()
+  onCleanup(() => jobStore.close())
+  registry.register(createListJobsTool({ store: jobStore, cwd: process.cwd() }))
+  registry.register(createScheduleJobTool({ store: jobStore, cwd: process.cwd() }))
   onMount(async () => {
+    // Load enabled-plugin contributions first so their MCP servers, hooks, and context join the
+    // session. Plugin MCP servers are namespaced (<plugin>__<server>) and merged into the config.
+    let contrib: Awaited<ReturnType<typeof plugins.manager.loadEnabled>> | null = null
     try {
-      await mcp.start(config.mcp, registry)
+      contrib = await plugins.manager.loadEnabled()
+    } catch {
+      contrib = null
+    }
+    if (contrib) {
+      setPluginHooks(contrib.hookRegistry)
+      setPluginContext(contrib.contextText.join("\n\n"))
+    }
+    const servers = contrib ? { ...config.mcp.servers, ...contrib.mcpServers } : config.mcp.servers
+    try {
+      await mcp.start({ servers }, registry)
     } catch {
       // start() already logs per-server failures; never block the session.
+    }
+    if (contrib && !contrib.hookRegistry.isEmpty()) {
+      void hookRunner.fire({ event: "SessionStart", cwd: process.cwd(), sessionId: sessionData().sessionID })
     }
   })
   onCleanup(() => void mcp.stop())
@@ -129,8 +225,31 @@ export function Session() {
     )
   })
   const dialog = useDialog()
+  const toast = useToast()
+  // Report-back: on open, surface jobs that finished or await attention while you were away.
+  onMount(() => {
+    try {
+      const projJobs = jobStore.listByProject(projectHash(process.cwd()))
+      if (!projJobs.length) return
+      const attention = projJobs.filter((j) => j.status === "paused" || j.status === "failed").length
+      const done = projJobs.filter((j) => j.status === "done").length
+      const active = projJobs.filter((j) => j.status === "running" || j.status === "pending").length
+      const parts: string[] = []
+      if (attention) parts.push(`${attention} need attention`)
+      if (done) parts.push(`${done} done`)
+      if (active) parts.push(`${active} active`)
+      if (parts.length) toast.show({ message: `Jobs: ${parts.join(", ")} · /jobs to view`, variant: "info" })
+    } catch {
+      // best-effort; never block the session
+    }
+  })
+  // Computer-use is granted once per session: after the first approval, actions run unattended
+  // (money-moving windows still re-confirm via the tripwire).
+  let computerUseGranted = false
 
   async function askViaDialog(tool: Tool, input: unknown): Promise<PermissionDecision> {
+    // Auto-accept (shift+tab) grants every prompt without a dialog, for the whole session.
+    if (autoApprove()) return "allow"
     let message = `Input: ${JSON.stringify(input)}`
     if (tool.name === "shell" && input && typeof (input as { command?: unknown }).command === "string") {
       try {
@@ -141,7 +260,33 @@ export function Session() {
         // keep the default message on any failure
       }
     }
-    const ok = await DialogConfirm.show(dialog, `Run ${tool.name}?`, message)
+    if (tool.name === "computerUse" && input && typeof input === "object") {
+      if (computerUseGranted) return "allow"
+      const instr = (input as { instruction?: string }).instruction ?? ""
+      const ok = await DialogConfirm.show(
+        dialog,
+        "Allow computer use for this session?",
+        `Quantcept will control the screen/keyboard to do this task, then run unattended.\nTask: ${instr.slice(0, 200)}`,
+      )
+      if (ok) computerUseGranted = true
+      return ok ? "allow" : "deny"
+    }
+    if (tool.name === "computer" && input && typeof input === "object") {
+      const isMoney = (tool.permissionPatterns?.(input) ?? []).includes("computeruse:money")
+      // After the first grant, normal computer actions auto-allow; only money windows re-ask.
+      if (!isMoney && computerUseGranted) return "allow"
+      const a = input as { action?: string; coordinate?: [number, number]; text?: string }
+      const where = a.coordinate ? ` @ [${a.coordinate.join(", ")}]` : ""
+      const what = a.text ? ` "${a.text}"` : ""
+      const title = isMoney ? "Confirm money action?" : "Allow computer use for this session?"
+      const cmsg = isMoney
+        ? `⚠ Money-action tripwire — the focused window looks money-moving.\nAction: ${a.action ?? "?"}${where}${what}`
+        : `Quantcept will control the screen/keyboard for this task. Approve once and it runs unattended (money-moving windows still confirm).\nFirst action: ${a.action ?? "?"}${where}${what}`
+      const okComputer = await DialogConfirm.show(dialog, title, cmsg)
+      if (okComputer && !isMoney) computerUseGranted = true
+      return okComputer ? "allow" : "deny"
+    }
+    const ok = await DialogConfirm.show(dialog, `Run ${tool.name}?  ·  effect: ${effectClassOf(tool, input)}`, message)
     return ok ? "allow" : "deny"
   }
   const route = useRoute()
@@ -230,11 +375,46 @@ export function Session() {
   })
 
   const renderer = useRenderer()
+
+  // Streamed assistant text arrives token-by-token; coalesce commits to ~30fps
+  // (and immediately on paragraph breaks) so the markdown renderer re-parses far
+  // less often. Flushed on tool boundaries and at turn end; dropped on cleanup.
+  const textCoalescer = createCoalescer({
+    onFlush: (delta) => {
+      setMessages(
+        produce((msgs) => {
+          const last = msgs[msgs.length - 1]
+          // Strip stray CJK on the full accumulated text (not the delta) so a
+          // leak split across chunks is still caught and words never merge.
+          if (last && last.role === "assistant") last.content = stripStrayCJK(last.content + delta)
+        }),
+      )
+      renderer.requestRender()
+    },
+  })
+  onCleanup(() => textCoalescer.dispose())
+
   const [loading, setLoading] = createSignal(false)
   const [tokensPrev, setTokensPrev] = createSignal(0)
   const [tokensLive, setTokensLive] = createSignal(0)
   const totalTokens = () => tokensPrev() + tokensLive()
   const sessionStart = Date.now()
+
+  // Auto-accept: when ON, every tool permission prompt is granted without a dialog. Toggled
+  // with shift+tab (plain tab is the slash-popover key, so it must be the shifted chord).
+  const [autoApprove, setAutoApprove] = createSignal(false)
+  useKeyboard((e: { name?: string; shift?: boolean }) => {
+    if (!isAutoApproveToggle(e)) return
+    const next = !autoApprove()
+    setAutoApprove(next)
+    toast.show({
+      message: next
+        ? "Auto-accept ON — tool prompts are granted automatically (shift+tab to stop)"
+        : "Auto-accept OFF — tool prompts will ask again",
+      variant: next ? "warning" : "info",
+    })
+    renderer.requestRender()
+  })
 
   function updateLastAssistantMessage(content: string) {
     setMessages(
@@ -255,6 +435,8 @@ export function Session() {
     if (mem) parts.push(mem)
     const skillBlock = skills.systemBlock()
     if (skillBlock) parts.push(skillBlock)
+    const pctx = pluginContext()
+    if (pctx) parts.push(pctx)
     return parts.join("\n\n")
   }
 
@@ -267,6 +449,9 @@ export function Session() {
         }),
       )
     } else if (e.type === "tool_start") {
+      // Commit any buffered text into the current assistant bubble before the
+      // tool row and the fresh post-tool bubble are pushed below.
+      textCoalescer.flush()
       setMessages(
         produce((msgs) => {
           msgs.push({
@@ -289,6 +474,7 @@ export function Session() {
             if (msgs[i].role === "tool" && msgs[i].toolName === e.tool && msgs[i].toolStatus === "running") {
               msgs[i].toolStatus = "done"
               msgs[i].toolOutput = e.output
+              msgs[i].toolTitle = e.title
               msgs[i].toolIsError = e.isError
               break
             }
@@ -316,11 +502,14 @@ export function Session() {
       const result = await runAgentTurn(
         {
           provider: activeProvider(),
+          visionProvider: computerUse?.visionProvider,
+          maxIterations: computerUse ? 50 : undefined,
           registry: opts.toolRegistry,
           messages: history,
           system: opts.system,
           mode: config.permissions.defaultMode,
           rules: config.permissions.rules,
+          hooks: hookRunner,
           cwd: process.cwd(),
           ask: askViaDialog,
           snapshot: {
@@ -331,13 +520,7 @@ export function Session() {
         },
         {
           onChunk: (chunk) => {
-            setMessages(
-              produce((msgs) => {
-                const last = msgs[msgs.length - 1]
-                if (last && last.role === "assistant") last.content += chunk
-              }),
-            )
-            renderer.requestRender()
+            textCoalescer.push(chunk)
           },
           onTokens: (input, output) => {
             setTokensLive(input + output)
@@ -345,6 +528,9 @@ export function Session() {
           },
         },
       )
+      // Commit any text still buffered from the final stream segment so the
+      // stored transcript and the final (streaming=false) render are complete.
+      textCoalescer.flush()
       setTokensPrev((p) => p + result.totalTokens)
       setTokensLive(0)
       buddy.react("success")
@@ -360,6 +546,8 @@ export function Session() {
       const realMsgCount = messages.filter((m) => m.role !== "tool" && m.content.length > 0).length
       storage.touch(sessionData().sessionID, { msgCount: realMsgCount, tokens: totalTokens() })
     } catch (error) {
+      // Drop any buffered partial text so it can't append after the error line.
+      textCoalescer.dispose()
       const errMsg = error instanceof Error ? error.message : String(error)
       setMessages(
         produce((msgs) => {
@@ -379,7 +567,46 @@ export function Session() {
     } finally {
       setLoading(false)
       renderer.requestRender()
+      // Plugin Stop hooks (best-effort; no-op when no plugin registers one).
+      void hookRunner.fire({ event: "Stop", cwd: process.cwd(), sessionId: sessionData().sessionID })
     }
+  }
+
+  // Smoothly slide the transcript to the newest message on send. Sticky-scroll is
+  // paused for the slide (so it can't snap instantly), then restored at the bottom
+  // where OpenTUI re-engages it so streaming keeps following.
+  let scrollAnim: ReturnType<typeof setInterval> | undefined
+  function endScrollAnim() {
+    if (scrollAnim) {
+      clearInterval(scrollAnim)
+      scrollAnim = undefined
+    }
+  }
+  onCleanup(endScrollAnim)
+  function slideToNewest() {
+    const box = scrollRef
+    if (!box) return
+    endScrollAnim()
+    const startTop = box.scrollTop
+    box.stickyScroll = false
+    const startTime = Date.now()
+    const durationMs = 280
+    scrollAnim = setInterval(() => {
+      const b = scrollRef
+      if (!b) {
+        endScrollAnim()
+        return
+      }
+      const max = Math.max(0, b.scrollHeight - b.viewport.height)
+      const t = Math.min(1, (Date.now() - startTime) / durationMs)
+      const eased = 1 - (1 - t) ** 3 // easeOutCubic
+      b.scrollTop = Math.round(startTop + (max - startTop) * eased)
+      renderer.requestRender()
+      if (t >= 1) {
+        endScrollAnim()
+        b.stickyScroll = true
+      }
+    }, 16)
   }
 
   async function handleSubmit(text: string) {
@@ -389,7 +616,17 @@ export function Session() {
     snapshot.track(sessionData().sessionID, "turn", text.slice(0, 60))
     setTokensLive(0)
     addMessage("assistant", "")
-    await runTurn({ system: baseSystem(), toolRegistry: registry })
+    slideToNewest()
+    let system = baseSystem()
+    // Plugin UserPromptSubmit hooks may inject extra context for this turn.
+    const pre = await hookRunner.fire({
+      event: "UserPromptSubmit",
+      cwd: process.cwd(),
+      sessionId: sessionData().sessionID,
+      prompt: text,
+    })
+    if (pre.additionalContext.length) system = `${system}\n\n${pre.additionalContext.join("\n\n")}`
+    await runTurn({ system, toolRegistry: registry })
   }
 
   function runSkill(skillName: string, args: string) {
@@ -401,6 +638,7 @@ export function Session() {
     snapshot.track(sessionData().sessionID, "turn", `skill:${skillName}`)
     setTokensLive(0)
     addMessage("assistant", "")
+    slideToNewest()
     const system = `${baseSystem()}\n\n## Skill: ${skill.name}\n${skill.prompt}`
     void runTurn({ system, toolRegistry: filterRegistry(registry, skill.allowedTools) })
   }
@@ -410,8 +648,20 @@ export function Session() {
     submitPrompt: (text: string) => handleSubmit(text),
     clearMessages: () => setMessages([]),
     runSkill: (skillName: string, args: string) => runSkill(skillName, args),
+    reloadComputerUse: () => reloadComputerUse(),
   }
   commands.setHostHooks(hostHooks)
+
+  // Tab in the prompt cycles the active agent (default → each agent → default),
+  // reusing the /agent command so the switch + toast stay in one place.
+  function cycleAgent() {
+    const names = agents.all().map((a) => a.name)
+    if (names.length === 0) return
+    const order = ["off", ...names]
+    const current = activeAgent()?.name ?? "off"
+    const next = order[(order.indexOf(current) + 1) % order.length] ?? "off"
+    commands.dispatch("session.agent", next, "keybind")
+  }
   const clearCmd: ActionCommand = {
     kind: "action",
     id: "session.clear",
@@ -526,6 +776,193 @@ export function Session() {
     },
   }
   const unregisterRemember = commands.register(rememberCmd)
+  const copyCmd: ActionCommand = {
+    kind: "action",
+    id: "session.copy",
+    name: "copy",
+    description: "Copy the assistant's last response to the clipboard",
+    category: "Session",
+    source: "builtin",
+    keybind: "ctrl+y",
+    async run(_args, ctx) {
+      let text: string | undefined
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i]
+        if (m.role === "assistant" && m.content.length > 0) {
+          text = m.content
+          break
+        }
+      }
+      if (!text) {
+        ctx.toast("No response to copy yet.")
+        return
+      }
+      // Copy as clean plain text (markdown markers stripped, tables flattened),
+      // via the native OS clipboard first (works even when the terminal blocks
+      // OSC 52), then OSC 52 via the renderer as the remote/SSH fallback.
+      const res = await copyToClipboard(markdownToPlainText(text), renderer)
+      ctx.toast(
+        res.ok
+          ? "Copied last response to clipboard."
+          : "Couldn't reach the clipboard (OS clipboard + OSC 52 both failed).",
+      )
+    },
+  }
+  const unregisterCopy = commands.register(copyCmd)
+  const mcpCmd: ActionCommand = {
+    kind: "action",
+    id: "session.mcp",
+    name: "mcp",
+    description: "Manage MCP servers (list | status | add … | remove <server> | auth <server> | logout <server>)",
+    category: "MCP",
+    source: "builtin",
+    argumentHint: "[list | status | add … | remove <server> | auth <server> | logout <server>]",
+    argChoices: ["status", "list", "auth", "logout", "add", "remove"],
+    async run(args, ctx) {
+      const [sub, ...rest] = args.trim().split(/\s+/).filter(Boolean)
+      const target = rest.join(" ")
+      if (!sub || sub === "status" || sub === "list") {
+        const rows = mcp.status()
+        if (rows.length === 0) {
+          ctx.toast("No MCP servers configured. Add them under mcp.servers in settings.json.")
+          return
+        }
+        const lines = rows
+          .map((r) => {
+            const transport = r.type === "http" ? `http/${r.transport}` : "stdio"
+            const tools = r.toolCount ? ` · ${r.toolCount} tool(s)` : ""
+            return `- ${r.name} [${transport}] ${r.state}${tools}`
+          })
+          .join("\n")
+        ctx.toast(`MCP servers:\n${lines}`)
+        return
+      }
+      if (sub === "auth") {
+        if (!target) {
+          ctx.toast("Usage: /mcp auth <server>")
+          return
+        }
+        ctx.toast(`Authorizing "${target}" — a browser window will open…`)
+        ctx.toast((await mcp.authenticate(target)).message)
+        return
+      }
+      if (sub === "logout") {
+        if (!target) {
+          ctx.toast("Usage: /mcp logout <server>")
+          return
+        }
+        ctx.toast((await mcp.logout(target)).message)
+        return
+      }
+      if (sub === "add") {
+        const [addName, second, ...tail] = rest
+        if (!addName || !second) {
+          ctx.toast("Usage: /mcp add <name> <command> [args…]  |  /mcp add <name> --http <url>")
+          return
+        }
+        const raw =
+          second === "--http" ? { type: "http", url: tail[0] } : { type: "stdio", command: second, args: tail }
+        const parsed = McpServerSchema.safeParse(raw)
+        if (!parsed.success) {
+          ctx.toast(`Invalid MCP server spec: ${parsed.error.message}`)
+          return
+        }
+        const result = await mcp.addServer(addName, parsed.data)
+        if (result.ok) writeServerToSettings(addName, parsed.data, process.cwd())
+        ctx.toast(result.message)
+        return
+      }
+      if (sub === "remove") {
+        if (!target) {
+          ctx.toast("Usage: /mcp remove <server>")
+          return
+        }
+        const result = await mcp.removeServer(target)
+        if (result.ok) removeServerFromSettings(target, process.cwd())
+        ctx.toast(result.message)
+        return
+      }
+      ctx.toast(
+        `Unknown /mcp subcommand: ${sub}. Try: status | auth <server> | logout <server> | add … | remove <server>`,
+      )
+    },
+  }
+  const unregisterMcp = commands.register(mcpCmd)
+  const pluginCmd: ActionCommand = {
+    kind: "action",
+    id: "session.plugin",
+    name: "plugin",
+    description: "Manage plugins (list | install <spec> | enable/disable <name> | marketplace …)",
+    category: "Plugins",
+    source: "builtin",
+    argumentHint: "[list | install <name@market|source> | enable <name> | disable <name> | marketplace add <source>]",
+    argChoices: ["list", "install", "enable", "disable", "uninstall", "marketplace"],
+    async run(args, ctx) {
+      const parts = args.trim().split(/\s+/).filter(Boolean)
+      const sub = parts[0]
+      const mgr = plugins.manager
+      try {
+        if (!sub || sub === "list") {
+          const installed = mgr.listInstalled()
+          ctx.toast(
+            installed.length
+              ? `Plugins:\n${installed.map((p) => `- ${p.name}${p.enabled ? "" : " (disabled)"}${p.marketplace ? ` @${p.marketplace}` : ""}`).join("\n")}`
+              : "No plugins installed. Try /plugin install <name@marketplace>.",
+          )
+          return
+        }
+        if (sub === "marketplace") {
+          const [msub, ...rest] = parts.slice(1)
+          if (msub === "add" && rest.length) {
+            const mp = await mgr.addMarketplace(rest.join(" "))
+            ctx.toast(`Added marketplace "${mp.name}" (${mp.plugins.length} plugin(s)).`)
+            return
+          }
+          if (msub === "remove" && rest[0]) {
+            mgr.removeMarketplace(rest[0])
+            ctx.toast(`Removed marketplace ${rest[0]}.`)
+            return
+          }
+          const ms = mgr.listMarketplaces()
+          ctx.toast(
+            ms.length
+              ? `Marketplaces:\n${ms.map((m) => `- ${m.name}`).join("\n")}`
+              : "No marketplaces. Try /plugin marketplace add <source>.",
+          )
+          return
+        }
+        if (sub === "install" && parts[1]) {
+          ctx.toast(`Installing ${parts[1]}…`)
+          const p = await mgr.install(parts.slice(1).join(" "))
+          plugins.reload()
+          ctx.toast(`Installed "${p.name}". Skills/commands load now; MCP servers load on next session.`)
+          return
+        }
+        if (sub === "uninstall" && parts[1]) {
+          await mgr.uninstall(parts[1])
+          plugins.reload()
+          ctx.toast(`Uninstalled ${parts[1]}.`)
+          return
+        }
+        if (sub === "enable" && parts[1]) {
+          mgr.enable(parts[1])
+          plugins.reload()
+          ctx.toast(`Enabled ${parts[1]}.`)
+          return
+        }
+        if (sub === "disable" && parts[1]) {
+          mgr.disable(parts[1])
+          plugins.reload()
+          ctx.toast(`Disabled ${parts[1]}.`)
+          return
+        }
+        ctx.toast(`Unknown /plugin subcommand: ${sub}. Try: list | install | enable | disable | marketplace.`)
+      } catch (e) {
+        ctx.toast(`/plugin failed: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    },
+  }
+  const unregisterPlugin = commands.register(pluginCmd)
   // Re-register /agent reactively so its argChoices reflect discovered agent
   // names once the (async) registry resolves — same pattern as the skill commands.
   let unregisterAgent: (() => void) | undefined
@@ -568,6 +1005,9 @@ export function Session() {
   })
   onCleanup(() => {
     unregisterClear()
+    unregisterCopy()
+    unregisterMcp()
+    unregisterPlugin()
     unregisterResume()
     unregisterUndo()
     unregisterRedo()
@@ -635,13 +1075,17 @@ export function Session() {
                   <Show
                     when={message.role === "user"}
                     fallback={
-                      <AssistantMessage
-                        content={message.content}
-                        timestamp={message.timestamp}
-                        theme={theme}
-                        syntaxStyle={syntaxStyle()}
-                        streaming={loading() && index() === messages.length - 1}
-                      />
+                      // Hide empty assistant turns (model went straight to a tool call) so
+                      // there are no repeated "Thinking..." blocks — only bubbles with text show.
+                      <Show when={message.content.length > 0}>
+                        <AssistantMessage
+                          content={message.content}
+                          timestamp={message.timestamp}
+                          theme={theme}
+                          syntaxStyle={syntaxStyle()}
+                          streaming={loading() && index() === messages.length - 1}
+                        />
+                      </Show>
                     }
                   >
                     <UserMessage
@@ -657,6 +1101,7 @@ export function Session() {
                   name={message.toolName ?? "tool"}
                   status={message.toolStatus ?? "done"}
                   output={message.toolOutput}
+                  title={message.toolTitle}
                   isError={message.toolIsError}
                   theme={theme}
                 />
@@ -675,6 +1120,8 @@ export function Session() {
             status={loading() ? "⟳ Generating..." : undefined}
             messageCount={messages.length}
             tokenCount={totalTokens()}
+            agent={activeAgent()?.name}
+            onAgentCycle={cycleAgent}
           />
         </box>
 
@@ -689,8 +1136,10 @@ export function Session() {
         >
           <text fg={theme.textMuted}>
             Ctrl+N <span style={{ fg: theme.textMuted }}>new</span>
+            {"  "}Ctrl+Y <span style={{ fg: theme.textMuted }}>copy</span>
             {"  "}Ctrl+Q <span style={{ fg: theme.textMuted }}>exit</span>
           </text>
+          <text fg={autoApprove() ? theme.warning : theme.textMuted}>{autoApproveLabel(autoApprove())}</text>
           <text fg={theme.textMuted}>{sessionData().sessionID.slice(0, 12)}</text>
         </box>
       </box>
@@ -767,30 +1216,37 @@ function AssistantMessage(props: {
   syntaxStyle: SyntaxStyle
   streaming?: boolean
 }) {
+  // Compact: name + time, then the markdown directly below — no nested padding
+  // boxes. Only rendered when there is content (empty turns are hidden by the
+  // caller), so no "Thinking..." placeholder block. Content is split into
+  // markdown and inline `qdiagram` segments; only the trailing markdown span is
+  // treated as still-streaming.
+  // Pass streamEnded so a diagram whose closing ``` never arrived (model ended the
+  // turn without it) still renders once streaming stops, instead of being stuck on
+  // the "drawing diagram…" placeholder.
+  const segments = createMemo(() => splitDiagramSegments(props.content, { streamEnded: !(props.streaming ?? false) }))
   return (
-    <box marginTop={1} flexShrink={0}>
-      <box paddingTop={1} paddingBottom={1} paddingLeft={2} paddingRight={2}>
-        <box flexDirection="row" justifyContent="space-between" flexShrink={0}>
-          <text fg={props.theme.accent} attributes={BOLD}>
-            Quantcept
-          </text>
-          <text fg={props.theme.textMuted}>{formatTime(props.timestamp)}</text>
-        </box>
-        <box paddingTop={1}>
-          <Show when={props.content} fallback={<text fg={props.theme.textMuted}>Thinking...</text>}>
-            {/* While streaming, markdown can't resolve unclosed spans (e.g. `**bol`) so it shows
-                raw markers. Render plain text during streaming and swap to full markdown once done. */}
-            <Show
-              when={props.streaming}
-              fallback={
-                <markdown content={props.content} fg={props.theme.markdownText} syntaxStyle={props.syntaxStyle} />
-              }
-            >
-              <text fg={props.theme.markdownText}>{props.content}</text>
-            </Show>
-          </Show>
-        </box>
+    <box marginTop={1} flexShrink={0} paddingLeft={2} paddingRight={2}>
+      <box flexDirection="row" justifyContent="space-between" flexShrink={0}>
+        <text fg={props.theme.accent} attributes={BOLD}>
+          Quantcept
+        </text>
+        <text fg={props.theme.textMuted}>{formatTime(props.timestamp)}</text>
       </box>
+      <For each={segments()}>
+        {(seg, i) =>
+          seg.kind === "md" ? (
+            <StreamingMarkdown
+              content={seg.text}
+              streaming={(props.streaming ?? false) && i() === segments().length - 1}
+              syntaxStyle={props.syntaxStyle}
+              fg={props.theme.markdownText}
+            />
+          ) : (
+            <DiagramBlock body={seg.body} closed={seg.closed} theme={props.theme} />
+          )
+        }
+      </For>
     </box>
   )
 }

@@ -6,6 +6,7 @@ export const CashflowTool = buildTool({
   name: "cashflow",
   description: "Fetch the annual cash flow statement for a stock ticker via yfinance.",
   inputSchema: z.object({ ticker: z.string() }),
+  effectClass: "read",
   isReadOnly: () => true,
   async call(input) {
     const r = await runYfinance(input.ticker, "cashflow")

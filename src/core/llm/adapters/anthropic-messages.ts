@@ -7,6 +7,14 @@ function toWireContent(content: string | ContentBlock[]): unknown {
   return content.map((b) => {
     if (b.type === "text") return { type: "text", text: b.text }
     if (b.type === "tool_use") return { type: "tool_use", id: b.id, name: b.name, input: b.input }
+    if (b.image) {
+      // Anthropic accepts a content array of text + image blocks inside a tool_result.
+      const text = typeof b.output === "string" ? b.output : b.output == null ? "" : JSON.stringify(b.output)
+      const parts: unknown[] = []
+      if (text) parts.push({ type: "text", text })
+      parts.push({ type: "image", source: { type: "base64", media_type: b.image.mediaType, data: b.image.data } })
+      return { type: "tool_result", tool_use_id: b.toolUseId, is_error: b.isError, content: parts }
+    }
     return {
       type: "tool_result",
       tool_use_id: b.toolUseId,

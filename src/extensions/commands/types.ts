@@ -18,6 +18,8 @@ export interface CommandRunContext {
   showDialog(render: () => JSX.Element): void
   closeDialog(): void
   toast(message: string): void
+  /** Re-apply computer-use config in the live session (after changing the key), no restart. */
+  reloadComputerUse(): void
   exit(): void
   query(search: string): Command[]
 }

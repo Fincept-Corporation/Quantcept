@@ -6,6 +6,7 @@ export const PriceHistoryTool = buildTool({
   name: "price_history",
   description: "Fetch OHLCV price history for a stock ticker via yfinance. period e.g. 1mo, 3mo, 1y (default 1mo).",
   inputSchema: z.object({ ticker: z.string(), period: z.string().optional() }),
+  effectClass: "read",
   isReadOnly: () => true,
   async call(input) {
     const r = await runYfinance(input.ticker, "history", { period: input.period })

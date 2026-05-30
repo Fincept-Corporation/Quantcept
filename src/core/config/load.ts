@@ -25,7 +25,12 @@ export function applyEnvOverrides(config: Config, env: Record<string, string | u
   if (env.LLM_BASE_URL) provider.baseUrl = env.LLM_BASE_URL
   if (env.LLM_API_KEY) provider.apiKey = env.LLM_API_KEY
   else if (env.MINIMAX_API_KEY) provider.apiKey = env.MINIMAX_API_KEY
-  return { ...config, provider }
+  const next: Config = { ...config, provider }
+  // Let the vision provider's key live in env (e.g. OPENAI_API_KEY) instead of a settings file.
+  if (next.visionProvider && !next.visionProvider.apiKey && env.OPENAI_API_KEY) {
+    next.visionProvider = { ...next.visionProvider, apiKey: env.OPENAI_API_KEY }
+  }
+  return next
 }
 
 function readJsonIfExists(file: string): DeepPartial<Config> {

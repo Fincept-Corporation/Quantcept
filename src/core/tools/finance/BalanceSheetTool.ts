@@ -6,6 +6,7 @@ export const BalanceSheetTool = buildTool({
   name: "balance_sheet",
   description: "Fetch the annual balance sheet for a stock ticker via yfinance.",
   inputSchema: z.object({ ticker: z.string() }),
+  effectClass: "read",
   isReadOnly: () => true,
   async call(input) {
     const r = await runYfinance(input.ticker, "balance")

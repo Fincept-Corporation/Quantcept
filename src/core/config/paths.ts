@@ -18,3 +18,18 @@ export function userSettingsFile(): string {
 export function projectSettingsFile(cwd?: string): string {
   return path.join(projectConfigDir(cwd), "settings.json")
 }
+
+/** Root for installed plugins + their machine-managed state (under the user config dir). */
+export function pluginsDir(): string {
+  return path.join(userConfigDir(), "plugins")
+}
+
+/** Cache for fetched plugins: pluginsDir/cache/<marketplace>/<plugin>/<version>/. */
+export function pluginCacheDir(): string {
+  return path.join(pluginsDir(), "cache")
+}
+
+/** Known marketplaces + per-plugin enablement state. */
+export function pluginStateFile(): string {
+  return path.join(pluginsDir(), "state.json")
+}

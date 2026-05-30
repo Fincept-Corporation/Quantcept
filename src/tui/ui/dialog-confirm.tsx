@@ -1,13 +1,27 @@
 import { createTextAttributes } from "@opentui/core"
+import { useKeyboard, useRenderer } from "@opentui/solid"
 import { useTheme } from "@tui/context/theme"
 import { createSignal } from "solid-js"
+import { dialogKeyAction } from "./dialog-keys"
 import type { useDialog } from "./dialog"
 
 const BOLD = createTextAttributes({ bold: true })
 
 export function DialogConfirm(props: { title: string; message: string; onResult: (result: boolean) => void }) {
   const { theme } = useTheme()
+  const renderer = useRenderer()
   const [selected, setSelected] = createSignal(true)
+
+  // The prompt input is always focused, so without this the dialog never sees keys (it just
+  // looked "stuck"). preventDefault stops the focused input from also acting on the key.
+  useKeyboard((e: { name: string; preventDefault?: () => void }) => {
+    const action = dialogKeyAction(e.name, selected())
+    if (!action) return
+    e.preventDefault?.()
+    if ("toggle" in action) setSelected((s) => !s)
+    else props.onResult(action.result)
+    renderer.requestRender()
+  })
 
   return (
     <box flexDirection="column" gap={1}>

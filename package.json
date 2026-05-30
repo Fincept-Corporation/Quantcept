@@ -42,7 +42,7 @@
     "solid-js": "1.9.12",
     "tree-sitter-bash": "0.25.1",
     "tree-sitter-powershell": "0.26.4",
-    "web-tree-sitter": "0.26.9",
+    "web-tree-sitter": "0.25.10",
     "yargs": "17.7.2",
     "zod": "^4"
   },
