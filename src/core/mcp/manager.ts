@@ -1,5 +1,5 @@
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js"
 import type { ToolRegistry } from "@core/tools/registry"
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js"
 import { logger } from "@shared/logger"
 import { openBrowser as defaultOpenBrowser } from "./auth/browser"
 import { type LoopbackCapture, startLoopbackCapture } from "./auth/loopback"
