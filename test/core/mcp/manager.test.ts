@@ -184,3 +184,90 @@ describe("McpManager (OAuth)", () => {
     expect(remoteStatus?.state).toBe("needs-auth")
   })
 })
+
+describe("McpManager.addServer / removeServer", () => {
+  test("addServer connects and registers a server's tools live", async () => {
+    const reg = new ToolRegistry()
+    const { factory } = fakeClientFactory({ live: { tools: [{ name: "go", inputSchema: {} }] } })
+    const mgr = new McpManager({ makeClient: factory, store: tmpStore() })
+    await mgr.start({ servers: {} }, reg)
+    expect(reg.get("mcp__live__go")).toBeUndefined()
+
+    const res = await mgr.addServer("live", stdio())
+    expect(res.ok).toBe(true)
+    expect(res.toolCount).toBe(1)
+    expect(reg.get("mcp__live__go")).toBeDefined()
+    expect(mgr.status().find((s) => s.name === "live")?.state).toBe("connected")
+  })
+
+  test("addServer rejects a duplicate name without touching the existing server", async () => {
+    const reg = new ToolRegistry()
+    const { factory } = fakeClientFactory({ dup: { tools: [{ name: "t", inputSchema: {} }] } })
+    const mgr = new McpManager({ makeClient: factory, store: tmpStore() })
+    await mgr.start({ servers: { dup: stdio() } }, reg)
+    expect(reg.get("mcp__dup__t")).toBeDefined()
+
+    const res = await mgr.addServer("dup", stdio())
+    expect(res.ok).toBe(false)
+    expect(res.message).toMatch(/already exists/)
+    expect(reg.get("mcp__dup__t")).toBeDefined()
+  })
+
+  test("addServer drops a server that fails to connect (not left half-added)", async () => {
+    const reg = new ToolRegistry()
+    const { factory } = fakeClientFactory({ broken: { failConnect: true } })
+    const mgr = new McpManager({ makeClient: factory, store: tmpStore() })
+    await mgr.start({ servers: {} }, reg)
+
+    const res = await mgr.addServer("broken", stdio())
+    expect(res.ok).toBe(false)
+    expect(mgr.status().find((s) => s.name === "broken")).toBeUndefined()
+  })
+
+  test("addServer for an oauth server lands in needs-auth and registers no tools", async () => {
+    const reg = new ToolRegistry()
+    const { factory } = fakeClientFactory({ remote: { tools: [{ name: "t", inputSchema: {} }] } })
+    const mgr = new McpManager({ makeClient: factory, store: tmpStore() })
+    await mgr.start({ servers: {} }, reg)
+
+    const res = await mgr.addServer("remote", oauth())
+    expect(res.ok).toBe(true)
+    expect(res.state).toBe("needs-auth")
+    expect(reg.get("mcp__remote__t")).toBeUndefined()
+  })
+
+  test("removeServer unregisters tools, drops the record, and clears stored creds", async () => {
+    const reg = new ToolRegistry()
+    const store = tmpStore()
+    store.setTokens("live", { access_token: "at", token_type: "Bearer" } as any)
+    const { factory } = fakeClientFactory({ live: { tools: [{ name: "go", inputSchema: {} }] } })
+    const mgr = new McpManager({ makeClient: factory, store })
+    await mgr.start({ servers: { live: stdio() } }, reg)
+    expect(reg.get("mcp__live__go")).toBeDefined()
+
+    const res = await mgr.removeServer("live")
+    expect(res.ok).toBe(true)
+    expect(reg.get("mcp__live__go")).toBeUndefined()
+    expect(mgr.status().find((s) => s.name === "live")).toBeUndefined()
+    expect(store.get("live")).toBeUndefined()
+  })
+
+  test("removeServer on an unknown name returns an error", async () => {
+    const reg = new ToolRegistry()
+    const { factory } = fakeClientFactory({})
+    const mgr = new McpManager({ makeClient: factory, store: tmpStore() })
+    await mgr.start({ servers: {} }, reg)
+    expect((await mgr.removeServer("ghost")).ok).toBe(false)
+  })
+
+  test("a removed name can be added again", async () => {
+    const reg = new ToolRegistry()
+    const { factory } = fakeClientFactory({ live: { tools: [{ name: "go", inputSchema: {} }] } })
+    const mgr = new McpManager({ makeClient: factory, store: tmpStore() })
+    await mgr.start({ servers: { live: stdio() } }, reg)
+    await mgr.removeServer("live")
+    const res = await mgr.addServer("live", stdio())
+    expect(res.ok).toBe(true)
+    expect(reg.get("mcp__live__go")).toBeDefined()
+  })
+})

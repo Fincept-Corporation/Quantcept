@@ -56,6 +56,15 @@ describe("McpServerSchema (union)", () => {
     const s = McpServerSchema.parse({ type: "http", url: "https://x/mcp" })
     expect(s.type).toBe("http")
   })
+  test("rejects an http entry without a url", () => {
+    expect(McpServerSchema.safeParse({ type: "http" }).success).toBe(false)
+  })
+  test("rejects a stdio entry with an empty command", () => {
+    expect(McpServerSchema.safeParse({ type: "stdio", command: "" }).success).toBe(false)
+  })
+  test("rejects an empty object", () => {
+    expect(McpServerSchema.safeParse({}).success).toBe(false)
+  })
 })
 
 describe("McpConfigSchema", () => {

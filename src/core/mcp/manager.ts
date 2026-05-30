@@ -42,6 +42,13 @@ export interface AuthResult {
   authUrl?: string
 }
 
+export interface AddResult {
+  ok: boolean
+  message: string
+  state?: ServerState
+  toolCount?: number
+}
+
 interface ServerRecord {
   name: string
   config: McpServer
@@ -183,6 +190,43 @@ export class McpManager {
     } finally {
       loop.close()
     }
+  }
+
+  // Add a server at runtime: connect + register its tools live. Independent of the one-shot
+  // `start()` guard. Does NOT persist — the caller writes settings.json on success, so a
+  // persist failure can't unwind a live connection and a failed connect is never saved.
+  async addServer(name: string, config: McpServer): Promise<AddResult> {
+    if (!this.registry) return { ok: false, message: "MCP manager not started" }
+    if (this.records.has(name)) return { ok: false, message: `MCP server "${name}" already exists` }
+
+    const rec: ServerRecord = { name, config, state: "disabled", toolNames: [] }
+    this.records.set(name, rec)
+    if (!config.enabled) return { ok: true, message: `Added "${name}" (disabled)`, state: "disabled" }
+
+    if (config.type === "http" && config.auth?.type === "oauth") {
+      await this.startOAuthServer(rec, config) // → needs-auth (no browser at add time)
+    } else {
+      await this.connectAndRegister(rec, this.makeClient(name, config))
+    }
+    if (rec.state === "failed") {
+      this.records.delete(name) // don't leave a half-added, broken server behind
+      return { ok: false, message: `"${name}" failed to connect; not added` }
+    }
+    return {
+      ok: true,
+      message: `Added "${name}" — ${rec.toolNames.length} tool(s)`,
+      state: rec.state,
+      toolCount: rec.toolNames.length,
+    }
+  }
+
+  // Remove a server entirely: disconnect, unregister its tools, drop the record + creds.
+  async removeServer(name: string): Promise<{ ok: boolean; message: string }> {
+    if (!this.records.has(name)) return { ok: false, message: `Unknown MCP server: ${name}` }
+    await this.disconnect(name)
+    this.records.delete(name)
+    this.store.clear(name)
+    return { ok: true, message: `Removed "${name}"` }
   }
 
   // Clear stored credentials and disconnect; the server returns to "needs-auth".
