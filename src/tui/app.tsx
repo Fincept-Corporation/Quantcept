@@ -5,6 +5,7 @@ import { resetLogFloor, setLogFloor } from "@shared/logger"
 import { BuddyProvider, useBuddy } from "@tui/buddy/BuddyContext"
 import { buddyCommands } from "@tui/buddy/buddy.commands"
 import { AuthGate } from "@tui/components/auth/AuthGate"
+import { authCommands } from "@tui/components/auth/auth.commands"
 import { CommandPalette } from "@tui/components/command-palette"
 import { AgentsProvider } from "@tui/context/agents"
 import { type Args, ArgsProvider } from "@tui/context/args"
@@ -169,7 +170,7 @@ function App() {
 
   const buddy = useBuddy()
   const commands = useCommands()
-  const unregister = buddyCommands(buddy).map((c) => commands.register(c))
+  const unregister = [...buddyCommands(buddy), ...authCommands(auth)].map((c) => commands.register(c))
   onCleanup(() => {
     for (const u of unregister) u()
   })
