@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { readIndex, recall, remember } from "@core/memory/store"
+import { forget, listMemories, readIndex, recall, remember } from "@core/memory/store"
 
 let tmp: string
 beforeEach(() => {
@@ -44,5 +44,29 @@ describe("memory store", () => {
     remember({ scope: "global", title: "Prefs", fact: "concise answers" })
     expect(readIndex("global")).toContain("[Prefs](prefs.md)")
     expect(readIndex("project", "ph")).toBe("")
+  })
+
+  test("listMemories returns entries with title + body", () => {
+    remember({ scope: "project", projectHash: "ph", title: "Risk", fact: "low risk" })
+    remember({ scope: "project", projectHash: "ph", title: "Goals", fact: "retire early" })
+    const list = listMemories("project", "ph")
+    expect(list.map((m) => m.slug)).toEqual(["goals", "risk"])
+    const risk = list.find((m) => m.slug === "risk")
+    expect(risk?.title).toBe("Risk")
+    expect(risk?.body).toContain("low risk")
+  })
+
+  test("forget deletes the topic + its index pointer", () => {
+    remember({ scope: "project", projectHash: "ph", title: "Risk", fact: "low risk" })
+    remember({ scope: "project", projectHash: "ph", title: "Goals", fact: "retire early" })
+    expect(forget("project", "ph", "risk")).toBe(true)
+    expect(recall({ scope: "project", projectHash: "ph", title: "Risk" })).toBeNull()
+    expect(readIndex("project", "ph")).not.toContain("(risk.md)")
+    expect(readIndex("project", "ph")).toContain("(goals.md)")
+    expect(listMemories("project", "ph").map((m) => m.slug)).toEqual(["goals"])
+  })
+
+  test("forget returns false for a missing slug", () => {
+    expect(forget("project", "ph", "nope")).toBe(false)
   })
 })

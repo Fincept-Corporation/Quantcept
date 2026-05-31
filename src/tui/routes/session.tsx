@@ -1,5 +1,6 @@
 import { createTextAttributes, RGBA, type SyntaxStyle } from "@opentui/core"
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
+import { MemoryModal } from "@tui/components/memory/MemoryModal"
 import { PluginsModal } from "@tui/components/plugins/PluginsModal"
 import { batch, createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore, produce } from "solid-js/store"
@@ -782,6 +783,18 @@ export function Session() {
     },
   }
   const unregisterRemember = commands.register(rememberCmd)
+
+  // /memory — browse, view & delete saved memories (the same store the agent's recall reads).
+  const memoryModalCmd: ActionCommand = {
+    kind: "action",
+    id: "session.memory",
+    name: "memory",
+    description: "Browse, view & delete saved memories",
+    category: "Memory",
+    source: "builtin",
+    run: (_args, ctx) => ctx.showDialog(() => <MemoryModal onClose={ctx.closeDialog} />),
+  }
+  const unregisterMemory = commands.register(memoryModalCmd)
   const copyCmd: ActionCommand = {
     kind: "action",
     id: "session.copy",
@@ -1040,6 +1053,7 @@ export function Session() {
     unregisterRedo()
     unregisterCheckpoints()
     unregisterRemember()
+    unregisterMemory()
     unregisterAgent?.()
     commands.clearHostHooks(hostHooks)
   })

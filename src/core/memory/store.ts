@@ -1,5 +1,5 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { dirname } from "node:path"
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { indexFile, type MemoryScope, memoryDir, slugify, topicFile } from "./paths"
 
 interface RememberInput {
@@ -53,6 +53,42 @@ export function readIndex(scope: MemoryScope, projectHash?: string): string {
   const idx = indexFile(scope, projectHash)
   if (!existsSync(idx)) return ""
   return readFileSync(idx, "utf8")
+}
+
+export interface MemoryEntry {
+  slug: string
+  title: string
+  body: string
+}
+
+/** All memories in a scope (reads the topic files; the MEMORY.md index is excluded). */
+export function listMemories(scope: MemoryScope, projectHash?: string): MemoryEntry[] {
+  const dir = memoryDir(scope, projectHash)
+  if (!existsSync(dir)) return []
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".md") && f !== "MEMORY.md")
+    .sort()
+    .map((f) => {
+      const slug = f.slice(0, -3)
+      const body = readFileSync(join(dir, f), "utf8")
+      const head = body.split("\n").find((l) => l.startsWith("# "))
+      return { slug, title: head ? head.slice(2).trim() : slug, body }
+    })
+}
+
+/** Delete a memory's topic file and remove its index pointer. Returns true if the topic existed. */
+export function forget(scope: MemoryScope, projectHash: string | undefined, slug: string): boolean {
+  const topic = topicFile(scope, projectHash, slug)
+  const existed = existsSync(topic)
+  if (existed) rmSync(topic)
+  const idx = indexFile(scope, projectHash)
+  if (existsSync(idx)) {
+    const kept = readFileSync(idx, "utf8")
+      .split("\n")
+      .filter((l) => !l.includes(`(${slug}.md)`))
+    writeFileSync(idx, kept.join("\n"))
+  }
+  return existed
 }
 
 export { memoryDir }
