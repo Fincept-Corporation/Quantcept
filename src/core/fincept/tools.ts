@@ -5,6 +5,7 @@ import { z } from "zod/v4"
 import { FinceptClient, type FinceptResult } from "./client"
 import { FinceptMarket } from "./market"
 import { FinceptResearch } from "./research"
+import { FinceptSync } from "./sync"
 
 /** Map the typed Fincept errors to clear agent-facing tool errors. */
 function mapErr(e: unknown): ToolResult {
@@ -50,6 +51,7 @@ export function createFinceptTools(): Tool[] {
   const token = () => loadConfig().fincept.apiKey
   const market = new FinceptMarket(client, token)
   const research = new FinceptResearch(client, token)
+  const sync = new FinceptSync(client, token)
 
   return [
     buildTool({
@@ -197,6 +199,98 @@ export function createFinceptTools(): Tool[] {
           research.grokipedia(i.slug, { extractRefs: i.extract_refs, truncate: i.truncate, citations: i.citations }),
           `grokipedia ${i.slug}`,
         ),
+    }),
+    // ── Cloud-sync: the user's own data (curated, write-gated subset) ──────
+    buildTool({
+      name: "fincept_watchlist_list",
+      description: "List the user's cloud watchlists (name, color, stock count).",
+      inputSchema: z.object({}),
+      effectClass: "read",
+      isReadOnly: () => true,
+      call: () => run(sync.watchlists.list(), "watchlists"),
+    }),
+    buildTool({
+      name: "fincept_watchlist_get",
+      description: "Get one watchlist with its stocks, by watchlist id.",
+      inputSchema: z.object({ id: z.string() }),
+      effectClass: "read",
+      isReadOnly: () => true,
+      call: (i) => run(sync.watchlists.get(i.id), `watchlist ${i.id}`),
+    }),
+    buildTool({
+      name: "fincept_watchlist_add",
+      description:
+        "Add a ticker to one of the user's watchlists (1 credit). Needs the watchlist id — call fincept_watchlist_list first.",
+      inputSchema: z.object({
+        watchlist_id: z.string(),
+        symbol: z.string(),
+        name: z.string().optional(),
+        exchange: z.string().optional(),
+        notes: z.string().optional(),
+      }),
+      effectClass: "write",
+      isReadOnly: () => false,
+      call: (i) =>
+        run(
+          sync.watchlists.addStock(i.watchlist_id, {
+            symbol: i.symbol,
+            name: i.name,
+            exchange: i.exchange,
+            notes: i.notes,
+          }),
+          `+${i.symbol} → ${i.watchlist_id}`,
+        ),
+    }),
+    buildTool({
+      name: "fincept_notes_list",
+      description: "List or search the user's saved financial notes.",
+      inputSchema: z.object({
+        search: z.string().optional(),
+        category: z.string().optional(),
+        favorites: z.boolean().optional(),
+        archived: z.boolean().optional(),
+      }),
+      effectClass: "read",
+      isReadOnly: () => true,
+      call: (i) =>
+        run(
+          sync.notes.list({ search: i.search, category: i.category, favorites: i.favorites, archived: i.archived }),
+          "notes",
+        ),
+    }),
+    buildTool({
+      name: "fincept_note_save",
+      description: "Save an analysis finding as a financial note in the user's cloud (1 credit).",
+      inputSchema: z.object({
+        title: z.string(),
+        content: z.string(),
+        category: z.string().optional(),
+        tickers: z.string().optional(),
+        tags: z.string().optional(),
+        sentiment: z.string().optional(),
+      }),
+      effectClass: "write",
+      isReadOnly: () => false,
+      call: (i) =>
+        run(
+          sync.notes.create({
+            title: i.title,
+            content: i.content,
+            category: i.category,
+            tickers: i.tickers,
+            tags: i.tags,
+            sentiment: i.sentiment,
+          }),
+          `note "${i.title.slice(0, 32)}"`,
+        ),
+    }),
+    buildTool({
+      name: "fincept_portfolio_list",
+      description: "List the user's cloud portfolios.",
+      inputSchema: z.object({}),
+      effectClass: "read",
+      isReadOnly: () => true,
+      call: () => run(sync.portfolios.list(), "portfolios"),
     }),
   ]
 }

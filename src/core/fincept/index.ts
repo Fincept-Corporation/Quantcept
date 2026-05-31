@@ -7,6 +7,16 @@ export { FinceptClient } from "./client"
 export { FinceptMarket } from "./market"
 export type { GrokipediaArticle, LlmOptions, LlmResult, LlmTask, VisualResult } from "./research"
 export { FinceptResearch } from "./research"
+export type {
+  Note,
+  NoteInput,
+  NotesPage,
+  Portfolio,
+  SettingEntry,
+  Watchlist,
+  WatchlistStock,
+} from "./sync"
+export { CLOUD_DOMAINS, FinceptSync } from "./sync"
 export { createFinceptTools } from "./tools"
 export type {
   Account,
