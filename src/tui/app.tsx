@@ -8,6 +8,7 @@ import { AuthGate } from "@tui/components/auth/AuthGate"
 import { authCommands } from "@tui/components/auth/auth.commands"
 import { cloudCommands } from "@tui/components/cloud/cloud.commands"
 import { CommandPalette } from "@tui/components/command-palette"
+import { learningsCommands } from "@tui/components/learnings/learnings.commands"
 import { settingsCommands } from "@tui/components/settings/settings.commands"
 import { AgentsProvider } from "@tui/context/agents"
 import { type Args, ArgsProvider } from "@tui/context/args"
@@ -177,6 +178,7 @@ function App() {
     ...authCommands(auth),
     ...settingsCommands(auth),
     ...cloudCommands(auth),
+    ...learningsCommands(auth),
   ].map((c) => commands.register(c))
   onCleanup(() => {
     for (const u of unregister) u()
