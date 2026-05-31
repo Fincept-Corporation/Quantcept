@@ -28,3 +28,28 @@ export class ToolError extends QuantceptError {
     this.name = "ToolError"
   }
 }
+
+export class FinceptError extends QuantceptError {
+  constructor(message: string, code = "FINCEPT") {
+    super(message, code)
+    this.name = "FinceptError"
+  }
+}
+
+export class FinceptAuthError extends FinceptError {
+  constructor(message = "Authentication required") {
+    super(message, "FINCEPT_AUTH")
+    this.name = "FinceptAuthError"
+  }
+}
+
+export class InsufficientCreditsError extends FinceptError {
+  constructor(
+    readonly required: number,
+    readonly available: number,
+    message = "Insufficient credits",
+  ) {
+    super(message, "INSUFFICIENT_CREDITS")
+    this.name = "InsufficientCreditsError"
+  }
+}
