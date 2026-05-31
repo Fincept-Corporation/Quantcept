@@ -6,6 +6,8 @@ import {
   FinceptAuth,
   FinceptBilling,
   FinceptClient,
+  FinceptLearnings,
+  FinceptSync,
   type RegisterReq,
 } from "@core/fincept"
 import { FinceptAuthError, FinceptError } from "@shared/errors"
@@ -34,6 +36,9 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
     // Account + billing services bound to the live token — Settings UI calls these.
     const accountApi = new FinceptAccount(client, token)
     const billing = new FinceptBilling(client, token)
+    // Cloud-sync (watchlists/notes/portfolios) + community learnings — the /cloud and /learnings modals call these.
+    const sync = new FinceptSync(client, token)
+    const learnings = new FinceptLearnings(client, token)
 
     async function refresh() {
       const t = token()
@@ -168,6 +173,8 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
       },
       accountApi,
       billing,
+      sync,
+      learnings,
       refresh,
     }
   },
