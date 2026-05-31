@@ -1,8 +1,8 @@
 import type { Database } from "bun:sqlite"
+import { rmSync } from "node:fs"
 import { openDb } from "@core/storage/db"
 import { appendJsonl, readJsonl } from "@core/storage/jsonl"
-import { jobFile, jobsDir } from "@core/storage/paths"
-import { projectHash } from "@core/storage/paths"
+import { jobFile, jobsDir, projectHash } from "@core/storage/paths"
 import type { Job, JobStatus, JobTurn, PauseReason } from "./types"
 
 // ---------------------------------------------------------------------------
@@ -119,9 +119,7 @@ export class JobStore {
   }
 
   get(id: string): Job | undefined {
-    const row = this.db
-      .query("SELECT * FROM job WHERE id = ?")
-      .get(id) as JobRow | undefined
+    const row = this.db.query("SELECT * FROM job WHERE id = ?").get(id) as JobRow | undefined
     if (!row) return undefined
     this.hashById.set(id, row.project_hash)
     return rowToJob(row)
@@ -151,11 +149,19 @@ export class JobStore {
         `INSERT INTO job_turn (id, job_id, seq, model, prompt_sha, text, input_tokens, output_tokens, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(turnId, id, turn.seq, turn.model ?? null, turn.promptSha ?? null, turn.text, turn.inputTokens, turn.outputTokens, now)
+      .run(
+        turnId,
+        id,
+        turn.seq,
+        turn.model ?? null,
+        turn.promptSha ?? null,
+        turn.text,
+        turn.inputTokens,
+        turn.outputTokens,
+        now,
+      )
 
-    this.db
-      .query("UPDATE job SET turns_used = turns_used + 1, updated_at = ? WHERE id = ?")
-      .run(now, id)
+    this.db.query("UPDATE job SET turns_used = turns_used + 1, updated_at = ? WHERE id = ?").run(now, id)
   }
 
   loadTurns(id: string): JobTurn[] {
@@ -169,9 +175,7 @@ export class JobStore {
   // ---------------------------------------------------------------------------
 
   markRunning(id: string): Job {
-    this.db
-      .query("UPDATE job SET status = 'running', updated_at = ? WHERE id = ?")
-      .run(Date.now(), id)
+    this.db.query("UPDATE job SET status = 'running', updated_at = ? WHERE id = ?").run(Date.now(), id)
     return this.get(id)!
   }
 
@@ -198,10 +202,23 @@ export class JobStore {
   }
 
   fail(id: string): Job {
-    this.db
-      .query("UPDATE job SET status = 'failed', updated_at = ? WHERE id = ?")
-      .run(Date.now(), id)
+    this.db.query("UPDATE job SET status = 'failed', updated_at = ? WHERE id = ?").run(Date.now(), id)
     return this.get(id)!
+  }
+
+  /** Permanently remove a job: its DB row, turn rows, and the JSONL turn log (best-effort). */
+  delete(id: string): void {
+    const ph = this._ph(id)
+    this.db.query("DELETE FROM job_turn WHERE job_id = ?").run(id)
+    this.db.query("DELETE FROM job WHERE id = ?").run(id)
+    this.hashById.delete(id)
+    if (ph) {
+      try {
+        rmSync(jobFile(ph, id), { force: true })
+      } catch {
+        /* best-effort — the turn log may not exist */
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -209,15 +226,11 @@ export class JobStore {
   // ---------------------------------------------------------------------------
 
   setNextRun(id: string, ts: number): void {
-    this.db
-      .query("UPDATE job SET next_run_at = ?, updated_at = ? WHERE id = ?")
-      .run(ts, Date.now(), id)
+    this.db.query("UPDATE job SET next_run_at = ?, updated_at = ? WHERE id = ?").run(ts, Date.now(), id)
   }
 
   setLastRun(id: string, ts: number): void {
-    this.db
-      .query("UPDATE job SET last_run_at = ?, updated_at = ? WHERE id = ?")
-      .run(ts, Date.now(), id)
+    this.db.query("UPDATE job SET last_run_at = ?, updated_at = ? WHERE id = ?").run(ts, Date.now(), id)
   }
 
   claimDue(projectHashValue: string, now: number): Job[] {

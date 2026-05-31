@@ -169,4 +169,13 @@ describe("JobStore", () => {
     store.setLastRun("j1", ts)
     expect(store.get("j1")!.lastRunAt).toBe(ts)
   })
+
+  test("delete removes the job (and not its siblings)", () => {
+    store.create({ id: "j1", cwd: "/repo/a", goal: "first" })
+    store.create({ id: "j2", cwd: "/repo/a", goal: "second" })
+    const ph = store.get("j1")!.projectHash
+    store.delete("j1")
+    expect(store.get("j1")).toBeUndefined()
+    expect(store.listByProject(ph).map((j) => j.id)).toEqual(["j2"])
+  })
 })
