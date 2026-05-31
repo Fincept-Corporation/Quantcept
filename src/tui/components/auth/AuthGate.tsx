@@ -5,17 +5,18 @@ import { useAuth } from "@tui/context/auth"
 import { useTheme } from "@tui/context/theme"
 import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js"
 
-type Mode = "landing" | "register" | "otp" | "login"
+type Mode = "landing" | "register" | "otp" | "login" | "reset"
 
 interface AuthField {
   key: string
   label: string
+  secret?: boolean
 }
 
 const REGISTER_FIELDS: AuthField[] = [
   { key: "username", label: "Username (3–50 chars)" },
   { key: "email", label: "Email" },
-  { key: "password", label: "Password" },
+  { key: "password", label: "Password", secret: true },
   { key: "phone", label: "Phone (7–15 digits)" },
   { key: "country_code", label: "Country code (e.g. +91)" },
   { key: "country", label: "Country" },
@@ -23,7 +24,13 @@ const REGISTER_FIELDS: AuthField[] = [
 
 const LOGIN_FIELDS: AuthField[] = [
   { key: "email", label: "Email" },
-  { key: "password", label: "Password" },
+  { key: "password", label: "Password", secret: true },
+]
+
+const RESET_FIELDS: AuthField[] = [
+  { key: "email", label: "Email" },
+  { key: "code", label: "Reset code (from email)" },
+  { key: "new_password", label: "New password", secret: true },
 ]
 
 // Enter submits the current field; never inserts a newline (single-line entry).
@@ -34,9 +41,12 @@ const fieldKeyBindings = [
 ]
 
 /**
- * The mandatory auth gate. A single focused input walks one field at a time
- * (landing → register/login fields → submit; register → otp). Backend errors
- * surface inline from auth.error. Rendered by App() whenever status is "unauthed".
+ * The mandatory auth gate. A single focused input walks one field at a time.
+ *  - landing → 'login' | 'register' | 'reset'
+ *  - register → email OTP → otp
+ *  - login → ok | unverified (→ otp, backend re-sent the code) | error
+ *  - reset → email (request code) → code + new password → back to login
+ * Backend errors surface inline from auth.error; positive steps via `notice`.
  */
 export function AuthGate() {
   const { theme } = useTheme()
@@ -48,11 +58,21 @@ export function AuthGate() {
   const [fieldIndex, setFieldIndex] = createSignal(0)
   const [otpEmail, setOtpEmail] = createSignal("")
   const [forceLogin, setForceLogin] = createSignal(false)
+  const [notice, setNotice] = createSignal<string | undefined>()
   let inputRef: TextareaRenderable | undefined
 
-  const fields = createMemo<AuthField[]>(() =>
-    mode() === "register" ? REGISTER_FIELDS : mode() === "login" ? LOGIN_FIELDS : [],
-  )
+  const fields = createMemo<AuthField[]>(() => {
+    switch (mode()) {
+      case "register":
+        return REGISTER_FIELDS
+      case "login":
+        return LOGIN_FIELDS
+      case "reset":
+        return RESET_FIELDS
+      default:
+        return []
+    }
+  })
 
   function clearInput() {
     inputRef?.setText("")
@@ -63,16 +83,21 @@ export function AuthGate() {
     setValues({})
     setFieldIndex(0)
     setForceLogin(false)
+    setNotice(undefined)
     auth.clearError()
     setMode(next)
     clearInput()
   }
 
   const prompt = createMemo(() => {
-    const m = mode()
-    if (m === "landing") return "Type 'login' or 'register', then Enter"
-    if (m === "otp") return "Enter the 6-digit code sent to your email"
-    return fields()[fieldIndex()]?.label ?? ""
+    switch (mode()) {
+      case "landing":
+        return "Type 'login', 'register', or 'reset', then Enter"
+      case "otp":
+        return "Enter the 6-digit code sent to your email"
+      default:
+        return fields()[fieldIndex()]?.label ?? ""
+    }
   })
 
   async function onSubmit() {
@@ -84,6 +109,7 @@ export function AuthGate() {
       const c = text.toLowerCase()
       if (c === "register" || c === "r") start("register")
       else if (c === "login" || c === "l") start("login")
+      else if (c === "reset" || c === "p") start("reset")
       return
     }
 
@@ -99,12 +125,22 @@ export function AuthGate() {
     const nextValues = { ...values(), [f.key]: text }
     setValues(nextValues)
 
+    // Reset: after the email field, request the code before collecting it.
+    if (m === "reset" && fieldIndex() === 0) {
+      await auth.requestPasswordReset(nextValues.email ?? "")
+      setNotice("If that email is registered, a reset code has been sent.")
+      setFieldIndex(1)
+      renderer.requestRender()
+      return
+    }
+
     if (fieldIndex() < fs.length - 1) {
       setFieldIndex(fieldIndex() + 1)
       renderer.requestRender()
       return
     }
 
+    // Last field — run the mode's action.
     if (m === "register") {
       const ok = await auth.register({
         username: nextValues.username ?? "",
@@ -116,22 +152,47 @@ export function AuthGate() {
       })
       if (ok) {
         setOtpEmail(nextValues.email ?? "")
+        setNotice("Account created — enter the code we emailed you.")
         setMode("otp")
         setFieldIndex(0)
         clearInput()
       } else {
-        setFieldIndex(0) // let the user re-enter after a validation/conflict error
+        setFieldIndex(0) // validation/conflict error → let the user re-enter
         renderer.requestRender()
       }
       return
     }
 
-    // login
-    const ok = await auth.login(nextValues.email ?? "", nextValues.password ?? "", forceLogin())
-    if (!ok) {
-      if ((auth.error ?? "").includes("force_login")) setForceLogin(true)
-      setFieldIndex(0)
-      renderer.requestRender()
+    if (m === "login") {
+      const res = await auth.login(nextValues.email ?? "", nextValues.password ?? "", forceLogin())
+      if (res === "unverified") {
+        setOtpEmail(nextValues.email ?? "")
+        setNotice("Email not verified — we sent a fresh code. Enter it below.")
+        setMode("otp")
+        setFieldIndex(0)
+        clearInput()
+      } else if (res === "error") {
+        if ((auth.error ?? "").includes("force_login")) setForceLogin(true)
+        setFieldIndex(0)
+        renderer.requestRender()
+      }
+      // res === "ok" → status flips to authed and the gate unmounts.
+      return
+    }
+
+    if (m === "reset") {
+      const ok = await auth.confirmPasswordReset(
+        nextValues.code ?? "",
+        nextValues.email ?? "",
+        nextValues.new_password ?? "",
+      )
+      if (ok) {
+        start("login")
+        setNotice("Password reset — please log in with your new password.")
+      } else {
+        setFieldIndex(1) // bad/expired code → re-enter code + new password
+        renderer.requestRender()
+      }
     }
   }
 
@@ -146,13 +207,15 @@ export function AuthGate() {
       <Show when={auth.status === "offline"}>
         <text fg={theme.accent}>● Offline — backend unavailable. Using cached session.</text>
       </Show>
+      <Show when={notice()}>
+        <text fg={theme.accent}>{notice()}</text>
+      </Show>
 
       <box flexDirection="column" paddingTop={1} paddingBottom={1}>
         <For each={fields().slice(0, fieldIndex())}>
           {(f) => (
             <text fg={theme.textMuted}>
-              {f.label}:{" "}
-              <span style={{ fg: theme.text }}>{f.key === "password" ? "••••••" : (values()[f.key] ?? "")}</span>
+              {f.label}: <span style={{ fg: theme.text }}>{f.secret ? "••••••" : (values()[f.key] ?? "")}</span>
             </text>
           )}
         </For>

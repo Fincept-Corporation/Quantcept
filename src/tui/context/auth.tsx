@@ -1,7 +1,7 @@
 import { loadConfig } from "@core/config/load"
 import { clearFinceptAuth, setFinceptAuth } from "@core/config/persist"
 import { type Account, FinceptAuth, FinceptClient, type RegisterReq } from "@core/fincept"
-import { FinceptAuthError } from "@shared/errors"
+import { FinceptAuthError, FinceptError } from "@shared/errors"
 import { createSignal, onMount } from "solid-js"
 import { createSimpleContext } from "./helper"
 
@@ -97,16 +97,18 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
           return false
         }
       },
-      login: async (email: string, password: string, forceLogin = false) => {
+      login: async (email: string, password: string, forceLogin = false): Promise<"ok" | "unverified" | "error"> => {
         setError(undefined)
         try {
           const r = await auth.login(email, password, forceLogin)
           adopt(r.data.api_key, { userId: r.data.user_id, email: r.data.email, username: r.data.username })
           await refresh()
-          return true
+          return "ok"
         } catch (e) {
+          // Unverified email: the backend just issued a fresh OTP — route to OTP entry.
+          if (e instanceof FinceptError && e.code === "account_not_verified") return "unverified"
           setError((e as Error).message)
-          return false
+          return "error"
         }
       },
       logout: async () => {
@@ -132,6 +134,26 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
           await refresh()
         } catch (e) {
           setError((e as Error).message)
+        }
+      },
+      requestPasswordReset: async (email: string) => {
+        setError(undefined)
+        try {
+          await auth.requestPasswordReset(email)
+          return true
+        } catch (e) {
+          setError((e as Error).message)
+          return false
+        }
+      },
+      confirmPasswordReset: async (code: string, email: string, newPassword: string) => {
+        setError(undefined)
+        try {
+          await auth.confirmPasswordReset(code, email, newPassword)
+          return true
+        } catch (e) {
+          setError((e as Error).message)
+          return false
         }
       },
       refresh,

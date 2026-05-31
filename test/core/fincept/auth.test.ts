@@ -49,4 +49,22 @@ describe("FinceptAuth", () => {
     expect(calls[0].url).toBe("http://x/v1/auth/status")
     expect((calls[0].init.headers as Record<string, string>).Authorization).toBe("Bearer fk_user_z")
   })
+
+  test("requestPasswordReset POSTs /v1/password-resets with the email", async () => {
+    const calls = capture()
+    await auth.requestPasswordReset("e@x.com")
+    expect(calls[0].url).toBe("http://x/v1/password-resets")
+    expect(calls[0].init.method).toBe("POST")
+    expect(JSON.parse(calls[0].init.body as string).email).toBe("e@x.com")
+  })
+
+  test("confirmPasswordReset PUTs /v1/password-resets/:token with email + new_password", async () => {
+    const calls = capture()
+    await auth.confirmPasswordReset("123456", "e@x.com", "NewPass1!")
+    expect(calls[0].url).toBe("http://x/v1/password-resets/123456")
+    expect(calls[0].init.method).toBe("PUT")
+    const b = JSON.parse(calls[0].init.body as string)
+    expect(b.email).toBe("e@x.com")
+    expect(b.new_password).toBe("NewPass1!")
+  })
 })

@@ -30,4 +30,14 @@ export class FinceptAuth {
   logout(token: string) {
     return this.client.request<null>({ method: "DELETE", path: "/v1/sessions/me", token })
   }
+  requestPasswordReset(email: string) {
+    return this.client.request<null>({ method: "POST", path: "/v1/password-resets", body: { email } })
+  }
+  confirmPasswordReset(token: string, email: string, newPassword: string) {
+    return this.client.request<null>({
+      method: "PUT",
+      path: `/v1/password-resets/${encodeURIComponent(token)}`,
+      body: { email, new_password: newPassword },
+    })
+  }
 }
