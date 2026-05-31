@@ -1,6 +1,7 @@
 import { createCancelOrderTool, createGetPositionsTool, createPlaceOrderTool } from "@core/broker/order-tools"
 import { PaperBroker } from "@core/broker/paper"
 import type { Config } from "@core/config/schema"
+import { createFinceptTools } from "@core/fincept/tools"
 import { createListJobsTool, createScheduleJobTool } from "@core/jobs/JobControlTool"
 import type { JobStore } from "@core/jobs/store"
 import type { Provider } from "@core/llm/types"
@@ -72,7 +73,8 @@ function isReadTool(t: Tool): boolean {
  * ONE source of truth.
  */
 export function registerBuiltinTools(registry: ToolRegistry, opts?: { readOnly?: boolean }): void {
-  for (const tool of BUILTIN_TOOLS) {
+  // Fincept tools are built fresh (they read the persisted key + baseUrl from config).
+  for (const tool of [...BUILTIN_TOOLS, ...createFinceptTools()]) {
     if (opts?.readOnly && !isReadTool(tool)) continue
     registry.register(tool)
   }

@@ -4,6 +4,8 @@ export type { CreateOrderResult, CreditEndpoint, CreditModule, Payment, Plan, Su
 export { FinceptBilling } from "./billing"
 export type { FinceptRequest, FinceptResult } from "./client"
 export { FinceptClient } from "./client"
+export { FinceptMarket } from "./market"
+export { createFinceptTools } from "./tools"
 export type {
   Account,
   LoginData,
