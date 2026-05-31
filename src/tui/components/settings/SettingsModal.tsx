@@ -581,7 +581,7 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
   }
 
   function rowText(row: Row): string {
-    if (row.kind === "info") return ""
+    if (row.kind === "info") return row.value
     if (row.kind === "action") return ""
     if (row.kind === "secret") {
       const v = row.value()
