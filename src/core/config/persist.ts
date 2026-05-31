@@ -13,8 +13,15 @@ export function readSettingsFile(file: string): Record<string, unknown> {
 }
 
 function writeSettingsFile(file: string, data: unknown): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`)
+  // 0700 dir / 0600 file: settings.json holds secrets (LLM + Fincept API keys),
+  // so keep it owner-only. mode on create only; chmod covers a pre-existing file.
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+  fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 })
+  try {
+    fs.chmodSync(file, 0o600)
+  } catch {
+    // best-effort — POSIX perms don't apply on Windows
+  }
 }
 
 export interface VisionProviderSettings {
