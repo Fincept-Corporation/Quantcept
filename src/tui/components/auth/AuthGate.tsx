@@ -1,9 +1,10 @@
 import { defaultTextareaKeyBindings, type TextareaRenderable } from "@opentui/core"
-import { useRenderer } from "@opentui/solid"
+import { useKeyboard, useRenderer } from "@opentui/solid"
 import { Logo } from "@tui/components/logo"
 import { useAuth } from "@tui/context/auth"
 import { useTheme } from "@tui/context/theme"
 import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js"
+import { filterCountries } from "./countries"
 
 type Mode = "landing" | "register" | "otp" | "login" | "reset"
 
@@ -11,15 +12,14 @@ interface AuthField {
   key: string
   label: string
   secret?: boolean
+  hint?: string
 }
 
 const REGISTER_FIELDS: AuthField[] = [
-  { key: "username", label: "Username (3–50 chars)" },
-  { key: "email", label: "Email" },
-  { key: "password", label: "Password", secret: true },
-  { key: "phone", label: "Phone (7–15 digits)" },
-  { key: "country_code", label: "Country code (e.g. +91)" },
-  { key: "country", label: "Country" },
+  { key: "username", label: "Username (3–50 chars)", hint: "Letters, numbers, hyphens and underscores only." },
+  { key: "email", label: "Email", hint: "A one-time code is emailed here to verify — enter a real, correct address." },
+  { key: "password", label: "Password (min 8 chars)", secret: true },
+  { key: "phone", label: "Phone (7–15 digits)", hint: "Just the number — you'll pick the country code next." },
 ]
 
 const LOGIN_FIELDS: AuthField[] = [
@@ -28,10 +28,34 @@ const LOGIN_FIELDS: AuthField[] = [
 ]
 
 const RESET_FIELDS: AuthField[] = [
-  { key: "email", label: "Email" },
+  { key: "email", label: "Email", hint: "Where the reset code will be sent." },
   { key: "code", label: "Reset code (from email)" },
   { key: "new_password", label: "New password", secret: true },
 ]
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const USERNAME_RE = /^[A-Za-z0-9_-]{3,50}$/
+
+/** Client-side validation mirroring the backend's register rules — fail fast before the round-trip. */
+function validateField(key: string, text: string): string | undefined {
+  if (key === "username") {
+    return USERNAME_RE.test(text) ? undefined : "Username must be 3–50 chars: letters, numbers, hyphens, underscores."
+  }
+  if (key === "email") {
+    return EMAIL_RE.test(text)
+      ? undefined
+      : "That doesn't look like a valid email — a verification code will be sent there."
+  }
+  if (key === "new_password" || key === "password") {
+    // Login doesn't need the min-length nudge; only enforce on register/reset.
+    return undefined
+  }
+  if (key === "phone") {
+    const digits = text.replace(/\D/g, "")
+    return digits.length >= 7 && digits.length <= 15 ? undefined : "Phone must be 7–15 digits."
+  }
+  return undefined
+}
 
 // Enter submits the current field; never inserts a newline (single-line entry).
 const fieldKeyBindings = [
@@ -41,12 +65,13 @@ const fieldKeyBindings = [
 ]
 
 /**
- * The mandatory auth gate. A single focused input walks one field at a time.
+ * The mandatory auth gate. A single focused input walks one field at a time, with client-side
+ * validation (email/username/phone) before each step. Register ends with a searchable country-code
+ * picker (sets country + country_code), then email OTP.
  *  - landing → 'login' | 'register' | 'reset'
- *  - register → email OTP → otp
- *  - login → ok | unverified (→ otp, backend re-sent the code) | error
+ *  - register → username/email/password/phone → country picker → OTP
+ *  - login → ok | unverified (→ otp) | error
  *  - reset → email (request code) → code + new password → back to login
- * Backend errors surface inline from auth.error; positive steps via `notice`.
  */
 export function AuthGate() {
   const { theme } = useTheme()
@@ -59,6 +84,14 @@ export function AuthGate() {
   const [otpEmail, setOtpEmail] = createSignal("")
   const [forceLogin, setForceLogin] = createSignal(false)
   const [notice, setNotice] = createSignal<string | undefined>()
+  const [vErr, setVErr] = createSignal<string | undefined>()
+
+  // Country-code picker (the final register step).
+  const [picking, setPicking] = createSignal(false)
+  const [cFilter, setCFilter] = createSignal("")
+  const [cIndex, setCIndex] = createSignal(0)
+  const filtered = createMemo(() => filterCountries(cFilter()))
+
   let inputRef: TextareaRenderable | undefined
 
   const fields = createMemo<AuthField[]>(() => {
@@ -74,9 +107,10 @@ export function AuthGate() {
     }
   })
 
+  const rerender = () => renderer.requestRender()
   function clearInput() {
     inputRef?.setText("")
-    renderer.requestRender()
+    rerender()
   }
 
   function start(next: Mode) {
@@ -84,6 +118,10 @@ export function AuthGate() {
     setFieldIndex(0)
     setForceLogin(false)
     setNotice(undefined)
+    setVErr(undefined)
+    setPicking(false)
+    setCFilter("")
+    setCIndex(0)
     auth.clearError()
     setMode(next)
     clearInput()
@@ -100,7 +138,32 @@ export function AuthGate() {
     }
   })
 
+  async function doRegister(v: Record<string, string>) {
+    const ok = await auth.register({
+      username: v.username ?? "",
+      email: v.email ?? "",
+      password: v.password ?? "",
+      phone: v.phone ?? "",
+      country: v.country ?? "",
+      country_code: v.country_code ?? "",
+    })
+    if (ok) {
+      setOtpEmail(v.email ?? "")
+      setNotice("Account created — enter the code we emailed you.")
+      setPicking(false)
+      setMode("otp")
+      setFieldIndex(0)
+      clearInput()
+    } else {
+      // validation/conflict error (e.g. email taken) → restart the register fields
+      setPicking(false)
+      setFieldIndex(0)
+      rerender()
+    }
+  }
+
   async function onSubmit() {
+    if (picking()) return // the picker handles its own keys
     const text = (inputRef?.plainText ?? "").trim()
     clearInput()
     const m = mode()
@@ -115,14 +178,27 @@ export function AuthGate() {
 
     if (m === "otp") {
       await auth.verifyOtp(otpEmail(), text)
-      renderer.requestRender()
+      rerender()
       return
     }
 
     const fs = fields()
     const f = fs[fieldIndex()]
     if (!f) return
-    const nextValues = { ...values(), [f.key]: text }
+
+    // Validate before accepting (skip on login, where the backend is authoritative).
+    if (m !== "login") {
+      const vmsg = validateField(f.key, text)
+      if (vmsg) {
+        setVErr(vmsg)
+        rerender()
+        return
+      }
+    }
+    setVErr(undefined)
+
+    const cleaned = f.key === "phone" ? text.replace(/\D/g, "") : text
+    const nextValues = { ...values(), [f.key]: cleaned }
     setValues(nextValues)
 
     // Reset: after the email field, request the code before collecting it.
@@ -130,36 +206,24 @@ export function AuthGate() {
       await auth.requestPasswordReset(nextValues.email ?? "")
       setNotice("If that email is registered, a reset code has been sent.")
       setFieldIndex(1)
-      renderer.requestRender()
+      rerender()
       return
     }
 
     if (fieldIndex() < fs.length - 1) {
       setFieldIndex(fieldIndex() + 1)
-      renderer.requestRender()
+      rerender()
       return
     }
 
-    // Last field — run the mode's action.
+    // Last text field reached.
     if (m === "register") {
-      const ok = await auth.register({
-        username: nextValues.username ?? "",
-        email: nextValues.email ?? "",
-        password: nextValues.password ?? "",
-        phone: nextValues.phone ?? "",
-        country: nextValues.country ?? "",
-        country_code: nextValues.country_code ?? "",
-      })
-      if (ok) {
-        setOtpEmail(nextValues.email ?? "")
-        setNotice("Account created — enter the code we emailed you.")
-        setMode("otp")
-        setFieldIndex(0)
-        clearInput()
-      } else {
-        setFieldIndex(0) // validation/conflict error → let the user re-enter
-        renderer.requestRender()
-      }
+      // → country picker (it runs doRegister on select).
+      setFieldIndex(fs.length)
+      setCFilter("")
+      setCIndex(0)
+      setPicking(true)
+      rerender()
       return
     }
 
@@ -174,9 +238,8 @@ export function AuthGate() {
       } else if (res === "error") {
         if ((auth.error ?? "").includes("force_login")) setForceLogin(true)
         setFieldIndex(0)
-        renderer.requestRender()
+        rerender()
       }
-      // res === "ok" → status flips to authed and the gate unmounts.
       return
     }
 
@@ -190,11 +253,64 @@ export function AuthGate() {
         start("login")
         setNotice("Password reset — please log in with your new password.")
       } else {
-        setFieldIndex(1) // bad/expired code → re-enter code + new password
-        renderer.requestRender()
+        setFieldIndex(1)
+        rerender()
       }
     }
   }
+
+  // Country picker keys — gated on picking() so it never interferes with the textarea steps.
+  // biome-ignore lint/suspicious/noExplicitAny: @opentui keyboard event is untyped (matches other modals)
+  useKeyboard((e: any) => {
+    if (!picking()) return
+    if (e.name === "escape") {
+      start("landing")
+      return
+    }
+    if (e.name === "up") {
+      e.preventDefault?.()
+      setCIndex((i) => Math.max(0, i - 1))
+      rerender()
+      return
+    }
+    if (e.name === "down") {
+      e.preventDefault?.()
+      setCIndex((i) => Math.min(Math.max(0, filtered().length - 1), i + 1))
+      rerender()
+      return
+    }
+    if (e.name === "return" || e.name === "kpenter") {
+      e.preventDefault?.()
+      const c = filtered()[cIndex()]
+      if (c) {
+        const v = { ...values(), country: c.name, country_code: `+${c.dial}` }
+        setValues(v)
+        void doRegister(v)
+      }
+      return
+    }
+    if (e.name === "backspace") {
+      setCFilter((s) => s.slice(0, -1))
+      setCIndex(0)
+      rerender()
+      return
+    }
+    if (typeof e.sequence === "string" && e.sequence.length === 1 && !e.ctrl && !e.meta) {
+      setCFilter((s) => s + e.sequence)
+      setCIndex(0)
+      rerender()
+    }
+  })
+
+  const PWIN = 8
+  const pickerWindow = createMemo(() => {
+    const list = filtered()
+    if (list.length <= PWIN) return { slice: list, offset: 0 }
+    const off = Math.min(Math.max(0, cIndex() - Math.floor(PWIN / 2)), list.length - PWIN)
+    return { slice: list.slice(off, off + PWIN), offset: off }
+  })
+
+  const currentHint = () => (mode() === "register" || mode() === "reset" ? fields()[fieldIndex()]?.hint : undefined)
 
   return (
     <box flexGrow={1} alignItems="center" justifyContent="center" paddingLeft={2} paddingRight={2}>
@@ -221,26 +337,66 @@ export function AuthGate() {
         </For>
       </box>
 
-      <text fg={theme.accent}>{prompt()}</text>
-      <box width="100%" maxWidth={60} paddingTop={1}>
-        <textarea
-          width="100%"
-          minHeight={1}
-          maxHeight={1}
-          focused={true}
-          textColor={theme.text}
-          focusedTextColor={theme.text}
-          cursorColor={theme.text}
-          keyBindings={fieldKeyBindings}
-          onSubmit={() => {
-            setTimeout(() => void onSubmit(), 0)
-          }}
-          ref={(r: TextareaRenderable) => {
-            inputRef = r
-          }}
-        />
-      </box>
+      {/* Country-code picker — the final register step */}
+      <Show when={picking()}>
+        <text fg={theme.accent}>Select your country — type to filter · ↑/↓ · Enter</text>
+        <box flexDirection="column" paddingTop={1} width="100%" maxWidth={60}>
+          <For each={pickerWindow().slice}>
+            {(c, i) => {
+              const idx = () => pickerWindow().offset + i()
+              const sel = () => idx() === cIndex()
+              return (
+                <box
+                  flexDirection="row"
+                  justifyContent="space-between"
+                  backgroundColor={sel() ? theme.backgroundElement : undefined}
+                >
+                  <text fg={sel() ? theme.accent : theme.text}>{(sel() ? "› " : "  ") + c.name}</text>
+                  <text fg={theme.textMuted}>+{c.dial}</text>
+                </box>
+              )
+            }}
+          </For>
+          <Show when={filtered().length === 0}>
+            <text fg={theme.textMuted}>No country matches "{cFilter()}".</text>
+          </Show>
+        </box>
+        <box height={1} minHeight={0} />
+        <text fg={theme.text}>
+          filter: {cFilter()}
+          <span style={{ fg: theme.accent }}>▏</span>
+        </text>
+      </Show>
 
+      {/* Single-field text entry for every non-picker step */}
+      <Show when={!picking()}>
+        <text fg={theme.accent}>{prompt()}</text>
+        <Show when={currentHint()}>
+          <text fg={theme.textMuted}>{currentHint()}</text>
+        </Show>
+        <box width="100%" maxWidth={60} paddingTop={1}>
+          <textarea
+            width="100%"
+            minHeight={1}
+            maxHeight={1}
+            focused={true}
+            textColor={theme.text}
+            focusedTextColor={theme.text}
+            cursorColor={theme.text}
+            keyBindings={fieldKeyBindings}
+            onSubmit={() => {
+              setTimeout(() => void onSubmit(), 0)
+            }}
+            ref={(r: TextareaRenderable) => {
+              inputRef = r
+            }}
+          />
+        </box>
+      </Show>
+
+      <Show when={vErr()}>
+        <text fg="#ff5555">{vErr()}</text>
+      </Show>
       <Show when={auth.error}>
         <text fg="#ff5555">{auth.error}</text>
       </Show>
@@ -251,6 +407,7 @@ export function AuthGate() {
       <box height={1} minHeight={0} />
       <text fg={theme.textMuted}>
         <Switch>
+          <Match when={picking()}>Type to filter · ↑/↓ select · Enter confirm · Esc cancel · Ctrl+Q quit</Match>
           <Match when={mode() === "landing"}>Ctrl+Q quit</Match>
           <Match when={true}>Enter submit · Ctrl+Q quit</Match>
         </Switch>
