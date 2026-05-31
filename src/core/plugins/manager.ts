@@ -61,6 +61,13 @@ export class PluginManager {
     return this.state.listMarketplaces()
   }
 
+  /** Fetch a known marketplace's catalog so a UI can browse available plugins before installing. */
+  async browseMarketplace(name: string): Promise<Marketplace> {
+    const known = this.state.listMarketplaces().find((m) => m.name === name)
+    if (!known) throw new QuantceptError(`Unknown marketplace: ${name}`, "PLUGIN")
+    return this.fetchMp(parsePluginSource(known.source as string))
+  }
+
   /** Install a plugin by `name@marketplace`, or directly from any source string. */
   async install(spec: string, opts: { enable?: boolean } = {}): Promise<InstalledPlugin> {
     let source: PluginSource

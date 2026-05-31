@@ -1,4 +1,5 @@
 import type { HookCommand, HookConfig, HookEvent } from "./types"
+import { HOOK_EVENTS } from "./types"
 
 /** A source's hooks, grouped so they can be removed as a unit. */
 interface Entry {
@@ -34,6 +35,15 @@ export class HookRegistry {
       }
     }
     return out
+  }
+
+  /** Enumerate registered sources with the events they hook and the total command-hook count (for inspection UIs). */
+  list(): { source: string; events: HookEvent[]; count: number }[] {
+    return this.entries.map((e) => {
+      const events = HOOK_EVENTS.filter((ev) => (e.config[ev]?.length ?? 0) > 0)
+      const count = events.reduce((n, ev) => n + (e.config[ev] ?? []).reduce((m, g) => m + g.hooks.length, 0), 0)
+      return { source: e.source, events, count }
+    })
   }
 
   isEmpty(): boolean {

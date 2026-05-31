@@ -1,5 +1,6 @@
 import { createTextAttributes, RGBA, type SyntaxStyle } from "@opentui/core"
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
+import { PluginsModal } from "@tui/components/plugins/PluginsModal"
 import { batch, createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 
@@ -24,11 +25,11 @@ import { createProvider } from "@core/llm/provider"
 import { McpServerSchema } from "@core/mcp/config"
 import { McpManager } from "@core/mcp/manager"
 import { removeServerFromSettings, writeServerToSettings } from "@core/mcp/persist"
-import { createAddMcpServerTool } from "@core/tools/builtin/AddMcpServerTool"
 import { memorySystemBlock, readIndex, remember } from "@core/memory"
 import type { PermissionDecision } from "@core/permissions/schema"
 import { filterRegistry } from "@core/skills"
 import { projectHash } from "@core/storage/paths"
+import { createAddMcpServerTool } from "@core/tools/builtin/AddMcpServerTool"
 import { createComputerUseAgentTool } from "@core/tools/computeruse/ComputerUseAgentTool"
 import { createComputerUseTool } from "@core/tools/computeruse/ComputerUseTool"
 import { resolveSidecarBinary } from "@core/tools/computeruse/resolveBinary"
@@ -55,8 +56,8 @@ import { useSnapshot } from "@tui/context/snapshot"
 import { useStorage } from "@tui/context/storage"
 import { type ThemeColors, useTheme } from "@tui/context/theme"
 import { createCoalescer } from "@tui/markdown/coalesce"
-import { splitDiagramSegments } from "@tui/markdown/segments"
 import { StreamingMarkdown } from "@tui/markdown/StreamingMarkdown"
+import { splitDiagramSegments } from "@tui/markdown/segments"
 import { markdownToPlainText } from "@tui/markdown/toPlainText"
 import { copyToClipboard } from "@tui/platform/clipboard"
 import { buildSyntaxStyle } from "@tui/themes/syntax-style"
@@ -117,7 +118,12 @@ function setupComputerUse(registry: ToolRegistry, config: ReturnType<typeof load
   const isOpenAI = vp.id === "openai-chat" && (vp.baseUrl?.includes("openai.com") ?? false)
   if (isOpenAI && vp.apiKey) {
     registry.register(
-      createComputerUseAgentTool({ sidecar: client, apiKey: vp.apiKey, model: "gpt-5.5", onAudit: appendComputerUseAudit }),
+      createComputerUseAgentTool({
+        sidecar: client,
+        apiKey: vp.apiKey,
+        model: "gpt-5.5",
+        onAudit: appendComputerUseAudit,
+      }),
     )
     return { client, visionProvider: undefined as ReturnType<typeof createProvider> | undefined }
   }
@@ -963,6 +969,26 @@ export function Session() {
     },
   }
   const unregisterPlugin = commands.register(pluginCmd)
+
+  // /plugins — rich modal: install/enable/disable, browse a marketplace's catalog, view active hooks.
+  const pluginsModalCmd: ActionCommand = {
+    kind: "action",
+    id: "session.plugins",
+    name: "plugins",
+    description: "Browse & manage plugins, marketplaces, and hooks",
+    category: "Plugins",
+    source: "builtin",
+    run: (_args, ctx) =>
+      ctx.showDialog(() => (
+        <PluginsModal
+          manager={plugins.manager}
+          reload={() => plugins.reload()}
+          contributions={plugins.contributions}
+          onClose={ctx.closeDialog}
+        />
+      )),
+  }
+  const unregisterPlugins = commands.register(pluginsModalCmd)
   // Re-register /agent reactively so its argChoices reflect discovered agent
   // names once the (async) registry resolves — same pattern as the skill commands.
   let unregisterAgent: (() => void) | undefined
@@ -1008,6 +1034,7 @@ export function Session() {
     unregisterCopy()
     unregisterMcp()
     unregisterPlugin()
+    unregisterPlugins()
     unregisterResume()
     unregisterUndo()
     unregisterRedo()
