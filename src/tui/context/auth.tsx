@@ -126,16 +126,18 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
           return false
         }
       },
-      verifyOtp: async (email: string, otp: string) => {
+      verifyOtp: async (email: string, otp: string): Promise<"ok" | "expired" | "error"> => {
         setError(undefined)
         try {
           const r = await auth.verifyOtp(email, otp)
+          // Adopt the key but DON'T flip the gate yet — AuthGate shows a result screen for a beat,
+          // then calls reloadAccount() to transition into the app.
           adopt(r.data.api_key, { userId: r.data.user_id, email })
-          await refresh()
-          return true
+          return "ok"
         } catch (e) {
+          const code = e instanceof FinceptError ? e.code : ""
           setError((e as Error).message)
-          return false
+          return code === "otp_expired" || code === "too_many_attempts" ? "expired" : "error"
         }
       },
       login: async (email: string, password: string, forceLogin = false): Promise<"ok" | "unverified" | "error"> => {

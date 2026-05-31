@@ -80,6 +80,8 @@ export function AuthGate() {
   const [forceLogin, setForceLogin] = createSignal(false)
   const [notice, setNotice] = createSignal<string | undefined>()
   const [vErr, setVErr] = createSignal<string | undefined>()
+  // After an OTP submit: show "success" | "expired" | "error" for ~2s before transitioning.
+  const [otpResult, setOtpResult] = createSignal<"success" | "expired" | "error" | undefined>()
 
   // Masked secret entry (passwords). `confirming` is the second-entry pass; `pwFirst` holds the first.
   const [pwBuf, setPwBuf] = createSignal("")
@@ -130,6 +132,7 @@ export function AuthGate() {
     setForceLogin(false)
     setNotice(undefined)
     setVErr(undefined)
+    setOtpResult(undefined)
     setPicking(false)
     setCFilter("")
     setCIndex(0)
@@ -252,8 +255,21 @@ export function AuthGate() {
       return
     }
     if (m === "otp") {
-      await auth.verifyOtp(otpEmail(), text)
-      rerender()
+      const outcome = await auth.verifyOtp(otpEmail(), text)
+      if (outcome === "ok") {
+        setOtpResult("success")
+        rerender()
+        // Let the success screen breathe, then finalize into the app (status → authed unmounts the gate).
+        setTimeout(() => void auth.reloadAccount(), 2000)
+      } else {
+        setOtpResult(outcome)
+        rerender()
+        setTimeout(() => {
+          setOtpResult(undefined)
+          clearInput()
+          rerender()
+        }, 2000)
+      }
       return
     }
 
@@ -435,8 +451,26 @@ export function AuthGate() {
         </box>
       </Show>
 
+      {/* OTP result screen — shown for ~2s after verifying, then transitions */}
+      <Show when={otpResult()}>
+        {(r) => (
+          <box flexDirection="column" alignItems="center" paddingTop={1} paddingBottom={1}>
+            <text fg={r() === "success" ? "#22c55e" : r() === "expired" ? theme.accent : "#ff5555"}>
+              {r() === "success" ? "✓  Verified!" : r() === "expired" ? "⌛  Code expired" : "✗  Incorrect code"}
+            </text>
+            <text fg={theme.textMuted}>
+              {r() === "success"
+                ? "Signing you in…"
+                : r() === "expired"
+                  ? "That code expired — sign in again to get a fresh one."
+                  : "Check the 6-digit code and try again."}
+            </text>
+          </box>
+        )}
+      </Show>
+
       {/* Single-line text entry for every non-secret, non-picker step */}
-      <Show when={stepKind() === "text"}>
+      <Show when={stepKind() === "text" && !otpResult()}>
         <text fg={theme.accent}>{prompt()}</text>
         <Show when={currentHint()}>
           <text fg={theme.textMuted}>{currentHint()}</text>
@@ -464,7 +498,7 @@ export function AuthGate() {
       <Show when={vErr()}>
         <text fg="#ff5555">{vErr()}</text>
       </Show>
-      <Show when={auth.error}>
+      <Show when={auth.error && !otpResult()}>
         <text fg="#ff5555">{auth.error}</text>
       </Show>
       <Show when={forceLogin()}>
