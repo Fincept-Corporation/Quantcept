@@ -20,6 +20,7 @@ type InfoRow = { kind: "info"; label: string; value: string }
 type Row = EditRow | ActionRow | InfoRow
 
 type MenuItem = { key: string; label: string; group: string }
+type MenuLine = { header: string } | { label: string; idx: number }
 
 // Multi-step text input (also used for single-field editing).
 interface InputSpec {
@@ -83,6 +84,28 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
     { key: "permrules", label: "Permission rules", group: "Settings" },
     ...configSections().map((s) => ({ key: `cfg:${s.key}`, label: s.label, group: "Settings" })),
   ])
+
+  // The menu renders as a FLAT, windowed list of single-line texts: group headers are their own
+  // rows (not two texts crammed into one per-item column box, which rendered overlapping), and only
+  // a window is shown so a long menu never overflows the dialog (which collided the bottom rows +
+  // footer). `cursor` still indexes menu() items; each item line carries its index.
+  const MENU_WINDOW = 16
+  const menuLines = createMemo<MenuLine[]>(() => {
+    const m = menu()
+    const out: MenuLine[] = []
+    m.forEach((item, i) => {
+      if (i === 0 || m[i - 1]?.group !== item.group) out.push({ header: item.group.toUpperCase() })
+      out.push({ label: item.label, idx: i })
+    })
+    return out
+  })
+  const windowedMenu = createMemo<MenuLine[]>(() => {
+    const lines = menuLines()
+    if (lines.length <= MENU_WINDOW) return lines
+    const cur = lines.findIndex((l) => "label" in l && l.idx === cursor())
+    const off = Math.min(Math.max(0, cur - Math.floor(MENU_WINDOW / 2)), lines.length - MENU_WINDOW)
+    return lines.slice(off, off + MENU_WINDOW)
+  })
 
   function startInput(spec: InputSpec, prefill = "") {
     setInput(spec)
@@ -586,21 +609,19 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
 
       <Show when={!input() && view() === "menu"}>
         <box flexDirection="column">
-          <For each={menu()}>
-            {(item, i) => {
-              const sel = () => i() === cursor()
-              const firstOfGroup = () => i() === 0 || menu()[i() - 1]?.group !== item.group
-              return (
-                <box flexDirection="column">
-                  <Show when={firstOfGroup()}>
-                    <text fg={theme.textMuted}>{item.group.toUpperCase()}</text>
-                  </Show>
-                  <text fg={sel() ? theme.accent : theme.text} bg={sel() ? theme.backgroundElement : undefined}>
-                    {(sel() ? "› " : "  ") + item.label}
-                  </text>
-                </box>
+          <For each={windowedMenu()}>
+            {(line) =>
+              "header" in line ? (
+                <text fg={theme.textMuted}>{line.header}</text>
+              ) : (
+                <text
+                  fg={line.idx === cursor() ? theme.accent : theme.text}
+                  bg={line.idx === cursor() ? theme.backgroundElement : undefined}
+                >
+                  {(line.idx === cursor() ? "› " : "  ") + line.label}
+                </text>
               )
-            }}
+            }
           </For>
         </box>
       </Show>
@@ -637,12 +658,7 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
       </Show>
 
       <box height={1} minHeight={0} />
-      <Show when={notice()}>
-        <text fg={theme.accent}>{notice()}</text>
-      </Show>
-      <Show when={err()}>
-        <text fg="#ff5555">{err()}</text>
-      </Show>
+      <text fg={err() ? "#ff5555" : theme.accent}>{err() ?? notice() ?? ""}</text>
       <text fg={theme.textMuted}>↑/↓ move · Enter edit/act · ‹ ›/Enter cycle · Esc back</text>
     </box>
   )
