@@ -82,3 +82,49 @@ export function clearFinceptAuth(file: string = userSettingsFile()): void {
   settings.fincept = { baseUrl: prev.baseUrl }
   writeSettingsFile(file, settings)
 }
+
+// ── Generic user-settings editor (backing the in-TUI Settings modal) ─────────
+// All writes target the USER settings file (never project), at 0600.
+
+/** Read the raw user settings.json object (defaults are not merged in). */
+export function getUserSettings(file: string = userSettingsFile()): Record<string, unknown> {
+  return readSettingsFile(file)
+}
+
+/** Read → mutate → write the user settings object. */
+export function updateUserSettings(
+  mutate: (s: Record<string, unknown>) => void,
+  file: string = userSettingsFile(),
+): void {
+  const s = readSettingsFile(file)
+  mutate(s)
+  writeSettingsFile(file, s)
+}
+
+/** Set a dot-path (e.g. "provider.model") in user settings, creating intermediate objects. */
+export function setUserSettingPath(pathStr: string, value: unknown, file: string = userSettingsFile()): void {
+  updateUserSettings((s) => {
+    const keys = pathStr.split(".")
+    let obj = s as Record<string, unknown>
+    for (let i = 0; i < keys.length - 1; i++) {
+      const k = keys[i]!
+      if (typeof obj[k] !== "object" || obj[k] === null) obj[k] = {}
+      obj = obj[k] as Record<string, unknown>
+    }
+    obj[keys[keys.length - 1]!] = value
+  }, file)
+}
+
+/** Delete a dot-path from user settings (e.g. clear an optional section). */
+export function clearUserSettingPath(pathStr: string, file: string = userSettingsFile()): void {
+  updateUserSettings((s) => {
+    const keys = pathStr.split(".")
+    let obj = s as Record<string, unknown>
+    for (let i = 0; i < keys.length - 1; i++) {
+      const k = keys[i]!
+      if (typeof obj[k] !== "object" || obj[k] === null) return
+      obj = obj[k] as Record<string, unknown>
+    }
+    delete obj[keys[keys.length - 1]!]
+  }, file)
+}
