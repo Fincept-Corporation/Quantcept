@@ -29,28 +29,44 @@ export interface FinceptResult<T> {
 export class FinceptClient {
   constructor(private readonly baseUrl: string) {}
 
+  /** JSON request/response. */
   async request<T>(req: FinceptRequest): Promise<FinceptResult<T>> {
-    const url = this.baseUrl.replace(/\/+$/, "") + req.path
     const headers: Record<string, string> = { "Content-Type": "application/json" }
     if (req.token) headers.Authorization = `Bearer ${req.token}`
     if (req.idempotencyKey) headers["Idempotency-Key"] = req.idempotencyKey
+    const res = await this.send(
+      req.path,
+      { method: req.method, headers, body: req.body === undefined ? undefined : JSON.stringify(req.body) },
+      req.timeoutMs,
+    )
+    return this.parse<T>(res)
+  }
 
+  /**
+   * Multipart upload (FormData). Deliberately omits Content-Type so the runtime
+   * adds the correct multipart boundary. Same envelope + error mapping as request().
+   */
+  async upload<T>(path: string, form: FormData, token?: string, timeoutMs?: number): Promise<FinceptResult<T>> {
+    const headers: Record<string, string> = {}
+    if (token) headers.Authorization = `Bearer ${token}`
+    const res = await this.send(path, { method: "POST", headers, body: form }, timeoutMs ?? 60_000)
+    return this.parse<T>(res)
+  }
+
+  private async send(path: string, init: RequestInit, timeoutMs?: number): Promise<Response> {
+    const url = this.baseUrl.replace(/\/+$/, "") + path
     const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), req.timeoutMs ?? 30_000)
-    let res: Response
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs ?? 30_000)
     try {
-      res = await fetch(url, {
-        method: req.method,
-        headers,
-        body: req.body === undefined ? undefined : JSON.stringify(req.body),
-        signal: ctrl.signal,
-      })
+      return await fetch(url, { ...init, signal: ctrl.signal })
     } catch (e) {
       throw new FinceptError(`network error: ${(e as Error)?.message ?? String(e)}`, "NETWORK")
     } finally {
       clearTimeout(timer)
     }
+  }
 
+  private async parse<T>(res: Response): Promise<FinceptResult<T>> {
     let env: FinceptEnvelope<T> = {} as FinceptEnvelope<T>
     const text = await res.text()
     if (text) {

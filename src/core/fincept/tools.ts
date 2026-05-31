@@ -3,6 +3,7 @@ import { buildTool, type Tool, type ToolResult } from "@core/tools/Tool"
 import { FinceptAuthError, FinceptError, InsufficientCreditsError } from "@shared/errors"
 import { z } from "zod/v4"
 import { FinceptClient, type FinceptResult } from "./client"
+import { FinceptLearnings } from "./learnings"
 import { FinceptMarket } from "./market"
 import { FinceptResearch } from "./research"
 import { FinceptSync } from "./sync"
@@ -52,6 +53,7 @@ export function createFinceptTools(): Tool[] {
   const market = new FinceptMarket(client, token)
   const research = new FinceptResearch(client, token)
   const sync = new FinceptSync(client, token)
+  const learnings = new FinceptLearnings(client, token)
 
   return [
     buildTool({
@@ -291,6 +293,58 @@ export function createFinceptTools(): Tool[] {
       effectClass: "read",
       isReadOnly: () => true,
       call: () => run(sync.portfolios.list(), "portfolios"),
+    }),
+    // ── Community learnings: shared LLM knowledge with semantic search ─────
+    buildTool({
+      name: "fincept_learnings_search",
+      description:
+        "Semantically search the community 'learnings' registry — shared analysis techniques, prompts, and domain knowledge (1 credit).",
+      inputSchema: z.object({ query: z.string().max(1000), limit: z.number().int().min(1).max(50).optional() }),
+      effectClass: "read",
+      isReadOnly: () => true,
+      call: (i) => run(learnings.search(i.query, i.limit), `learnings: ${i.query}`),
+    }),
+    buildTool({
+      name: "fincept_learnings_list",
+      description: "Browse the community learnings feed (newest first).",
+      inputSchema: z.object({ page: z.number().int().min(1).optional(), sort: z.string().optional() }),
+      effectClass: "read",
+      isReadOnly: () => true,
+      call: (i) => run(learnings.list({ page: i.page, sort: i.sort }), "learnings"),
+    }),
+    buildTool({
+      name: "fincept_learnings_get",
+      description: "Get a learning's full metadata (tags, version, torrent) by id.",
+      inputSchema: z.object({ id: z.string() }),
+      effectClass: "read",
+      isReadOnly: () => true,
+      call: (i) => run(learnings.get(i.id), `learning ${i.id}`),
+    }),
+    buildTool({
+      name: "fincept_learnings_download",
+      description: "Get a short-lived presigned URL to download a learning's file (2 credits).",
+      inputSchema: z.object({ id: z.string() }),
+      effectClass: "read",
+      isReadOnly: () => true,
+      call: (i) => run(learnings.download(i.id), `download ${i.id}`),
+    }),
+    buildTool({
+      name: "fincept_learnings_publish",
+      description:
+        "Publish a text learning to the community registry — pending admin approval (3 credits). Use to share a reusable technique or finding.",
+      inputSchema: z.object({
+        title: z.string().max(200),
+        content: z.string(),
+        description: z.string().optional(),
+        tags: z.array(z.string()).optional(),
+      }),
+      effectClass: "write",
+      isReadOnly: () => false,
+      call: (i) =>
+        run(
+          learnings.upload({ title: i.title, content: i.content, description: i.description, tags: i.tags }),
+          `publish "${i.title.slice(0, 32)}"`,
+        ),
     }),
   ]
 }
