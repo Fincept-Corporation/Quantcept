@@ -49,6 +49,7 @@ import { DiagramBlock } from "@tui/components/DiagramBlock"
 import { Prompt } from "@tui/components/prompt"
 import { ToolMessage } from "@tui/components/tool-message"
 import { useAgents } from "@tui/context/agents"
+import { useAuth } from "@tui/context/auth"
 import { useCommands } from "@tui/context/command"
 import { useExit } from "@tui/context/exit"
 import { usePlugins } from "@tui/context/plugins"
@@ -153,6 +154,7 @@ export function Session() {
   const skills = useSkills()
   const agents = useAgents()
   const plugins = usePlugins()
+  const auth = useAuth()
   // Plugin hooks + extra context, populated once enabled plugins load (see the MCP onMount below).
   const [pluginHooks, setPluginHooks] = createSignal<HookRegistry>(new HookRegistry())
   const [pluginContext, setPluginContext] = createSignal("")
@@ -575,6 +577,10 @@ export function Session() {
     } finally {
       setLoading(false)
       renderer.requestRender()
+      // Reconcile the account after the turn — agent tool calls may have spent credits or changed
+      // state. (Credits-Balance headers already live-patch the balance; this catches the rest, and
+      // reloadAccount never flips the gate to "checking".)
+      void auth.reloadAccount()
       // Plugin Stop hooks (best-effort; no-op when no plugin registers one).
       void hookRunner.fire({ event: "Stop", cwd: process.cwd(), sessionId: sessionData().sessionID })
     }

@@ -1,4 +1,5 @@
 import { FinceptAuthError, FinceptError, InsufficientCreditsError } from "@shared/errors"
+import { publishCredits } from "./credits"
 import type { FinceptEnvelope } from "./types"
 
 export interface FinceptRequest {
@@ -92,10 +93,13 @@ export class FinceptClient {
       const v = res.headers.get(h)
       return v == null ? undefined : Number(v)
     }
+    const creditsBalance = num("Credits-Balance")
+    // Keep the displayed balance in sync everywhere: any response carrying the header updates it.
+    if (creditsBalance !== undefined && Number.isFinite(creditsBalance)) publishCredits(creditsBalance)
     return {
       data: env.data as T,
       message: env.message,
-      creditsBalance: num("Credits-Balance"),
+      creditsBalance,
       creditsCost: num("Credits-Cost"),
     }
   }

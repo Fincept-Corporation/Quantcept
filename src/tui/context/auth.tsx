@@ -9,9 +9,10 @@ import {
   FinceptLearnings,
   FinceptSync,
   type RegisterReq,
+  subscribeCredits,
 } from "@core/fincept"
 import { FinceptAuthError, FinceptError } from "@shared/errors"
-import { createSignal, onMount } from "solid-js"
+import { createSignal, onCleanup, onMount } from "solid-js"
 import { createSimpleContext } from "./helper"
 
 export type AuthStatus = "checking" | "authed" | "unauthed" | "offline"
@@ -95,6 +96,13 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
     }
 
     onMount(refresh)
+
+    // Live-sync the displayed balance: any Fincept call (UI or agent tool) that returns a fresh
+    // Credits-Balance header patches account.credit_balance — no manual refresh needed.
+    const unsubCredits = subscribeCredits((balance) => {
+      setAccount((a) => (a ? { ...a, credit_balance: balance } : a))
+    })
+    onCleanup(() => unsubCredits())
 
     return {
       get status() {
