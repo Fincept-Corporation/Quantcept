@@ -12,7 +12,11 @@ export class FinceptAuth {
     return this.client.request<VerifyOtpData>({ method: "POST", path: "/v1/sessions/otp", body: { email, otp } })
   }
   login(email: string, password: string, forceLogin = false) {
-    return this.client.request<LoginData>({ method: "POST", path: "/v1/sessions", body: { email, password, force_login: forceLogin } })
+    return this.client.request<LoginData>({
+      method: "POST",
+      path: "/v1/sessions",
+      body: { email, password, force_login: forceLogin },
+    })
   }
   status(token: string) {
     return this.client.request<StatusData>({ method: "GET", path: "/v1/auth/status", token })
