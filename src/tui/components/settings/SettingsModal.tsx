@@ -34,6 +34,10 @@ const ACCOUNT_SECTIONS: MenuItem[] = [
   { key: "transactions", label: "Transactions", group: "Account" },
   { key: "logins", label: "Login history", group: "Account" },
   { key: "subscriptions", label: "Data subscriptions", group: "Account" },
+  { key: "billing", label: "Billing & plan", group: "Billing" },
+  { key: "plans", label: "Plans", group: "Billing" },
+  { key: "credits", label: "Credit costs", group: "Billing" },
+  { key: "payments", label: "Payment history", group: "Billing" },
   { key: "danger", label: "Danger zone", group: "Account" },
 ]
 
@@ -204,6 +208,30 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
         },
       ]
     }
+    if (key === "billing") {
+      const a = auth.account
+      return [
+        { kind: "info", label: "Plan", value: a?.account_type ?? "—" },
+        { kind: "info", label: "Credits", value: a ? String(a.credit_balance) : "—" },
+        { kind: "info", label: "Credits expire", value: a?.credits_expire_at ?? "never" },
+        {
+          kind: "action",
+          label: "Buy credits / upgrade plan",
+          run: () =>
+            startInput({
+              title: "Top up — enter a plan id (see the Plans section)",
+              fields: [{ label: "Plan id (e.g. pro)" }],
+              onComplete: async ([planId]) => {
+                const r = await auth.billing.createOrder((planId ?? "").trim())
+                flash(
+                  `Order created (${r.data.environment}). Finish payment in your browser — session ${r.data.payment_session_id.slice(0, 12)}…`,
+                )
+              },
+            }),
+        },
+        { kind: "action", label: "Refresh account", run: () => auth.refresh().then(() => flash("Refreshed")) },
+      ]
+    }
     if (key === "danger") {
       return [
         {
@@ -276,6 +304,37 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
             value: n.created_at?.slice(0, 10) ?? "",
           })),
         )
+      } else if (key === "credits") {
+        const r = await auth.billing.creditsMap()
+        const rows: InfoRow[] = []
+        for (const m of r.data?.modules ?? []) {
+          for (const ep of m.endpoints) {
+            rows.push({
+              kind: "info",
+              label: `${ep.method} ${m.prefix}${ep.path}`,
+              value: ep.cost === 0 ? "free" : `${ep.cost}cr`,
+            })
+          }
+        }
+        setAsyncRows(rows)
+      } else if (key === "plans") {
+        const r = await auth.billing.plans()
+        setAsyncRows(
+          (r.data ?? []).map((p) => ({
+            kind: "info",
+            label: `${p.plan_id} — ${p.name}`,
+            value: p.is_free ? "free" : `$${p.price_usd} · ${p.credits}cr`,
+          })),
+        )
+      } else if (key === "payments") {
+        const r = await auth.billing.payments()
+        setAsyncRows(
+          (r.data?.payments ?? []).map((p) => ({
+            kind: "info",
+            label: `${p.created_at?.slice(0, 10)} ${p.plan_name ?? p.payment_gateway}`,
+            value: `$${p.amount_usd} · ${p.status}`,
+          })),
+        )
       }
     } catch (e) {
       fail((e as Error).message)
@@ -285,7 +344,16 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
     }
   }
 
-  const ASYNC = new Set(["usage", "transactions", "logins", "subscriptions", "notifications"])
+  const ASYNC = new Set([
+    "usage",
+    "transactions",
+    "logins",
+    "subscriptions",
+    "notifications",
+    "credits",
+    "plans",
+    "payments",
+  ])
 
   function enterSection(key: string) {
     setView(key)

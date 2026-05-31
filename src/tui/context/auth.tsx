@@ -1,6 +1,13 @@
 import { loadConfig } from "@core/config/load"
 import { clearFinceptAuth, setFinceptAuth } from "@core/config/persist"
-import { type Account, FinceptAccount, FinceptAuth, FinceptClient, type RegisterReq } from "@core/fincept"
+import {
+  type Account,
+  FinceptAccount,
+  FinceptAuth,
+  FinceptBilling,
+  FinceptClient,
+  type RegisterReq,
+} from "@core/fincept"
 import { FinceptAuthError, FinceptError } from "@shared/errors"
 import { createSignal, onMount } from "solid-js"
 import { createSimpleContext } from "./helper"
@@ -24,8 +31,9 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
     const [account, setAccount] = createSignal<Account | undefined>()
     const [token, setToken] = createSignal<string | undefined>(cfg.apiKey)
     const [error, setError] = createSignal<string | undefined>()
-    // Account service bound to the live token — Settings/account UI calls these.
+    // Account + billing services bound to the live token — Settings UI calls these.
     const accountApi = new FinceptAccount(client, token)
+    const billing = new FinceptBilling(client, token)
 
     async function refresh() {
       const t = token()
@@ -159,6 +167,7 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
         }
       },
       accountApi,
+      billing,
       refresh,
     }
   },
