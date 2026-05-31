@@ -1,3 +1,5 @@
+import { loadConfig } from "@core/config/load"
+import { setUserSettingPath } from "@core/config/persist"
 import { useKeyboard, useRenderer } from "@opentui/solid"
 import type { AuthContext } from "@tui/context/auth"
 import { useTheme } from "@tui/context/theme"
@@ -78,6 +80,7 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
   const menu = createMemo<MenuItem[]>(() => [
     ...ACCOUNT_SECTIONS,
     { key: "appearance", label: "Appearance", group: "Settings" },
+    { key: "permrules", label: "Permission rules", group: "Settings" },
     ...configSections().map((s) => ({ key: `cfg:${s.key}`, label: s.label, group: "Settings" })),
   ])
 
@@ -231,6 +234,56 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
         },
         { kind: "action", label: "Refresh account", run: () => auth.refresh().then(() => flash("Refreshed")) },
       ]
+    }
+    if (key === "permrules") {
+      const rules = loadConfig().permissions.rules
+      const persist = (next: typeof rules) => {
+        setUserSettingPath("permissions.rules", next)
+        setBump((n) => n + 1)
+        flash("Saved · applies next session")
+      }
+      const out: Row[] = [
+        {
+          kind: "action",
+          label: "＋ Add rule",
+          run: () =>
+            startInput({
+              title: "Add permission rule",
+              fields: [
+                { label: "Permission (tool or category, e.g. shell)" },
+                { label: "Pattern (glob, e.g. * or 'git *')" },
+                { label: "Action (allow | ask | deny)" },
+              ],
+              onComplete: ([permission, pattern, action]) => {
+                const a = action === "allow" || action === "deny" ? action : "ask"
+                persist([
+                  ...rules,
+                  { permission: (permission ?? "").trim(), pattern: (pattern ?? "").trim() || "*", action: a },
+                ])
+              },
+            }),
+        },
+      ]
+      rules.forEach((r, i) => {
+        out.push({
+          kind: "action",
+          label: `${r.permission} ${r.pattern} → ${r.action}`,
+          run: () => {
+            const order = ["allow", "ask", "deny"] as const
+            const next = order[(order.indexOf(r.action) + 1) % order.length] ?? "ask"
+            persist(rules.map((x, j) => (j === i ? { ...x, action: next } : x)))
+          },
+        })
+      })
+      if (rules.length) {
+        out.push({
+          kind: "action",
+          label: "✕ Remove last rule",
+          danger: true,
+          run: () => persist(rules.slice(0, -1)),
+        })
+      }
+      return out
     }
     if (key === "danger") {
       return [
