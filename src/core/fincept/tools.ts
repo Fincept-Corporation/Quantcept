@@ -4,24 +4,34 @@ import { FinceptAuthError, FinceptError, InsufficientCreditsError } from "@share
 import { z } from "zod/v4"
 import { FinceptClient, type FinceptResult } from "./client"
 import { FinceptMarket } from "./market"
+import { FinceptResearch } from "./research"
 
-/** Run a Fincept client call as a tool result, mapping the typed errors to clear agent-facing text. */
+/** Map the typed Fincept errors to clear agent-facing tool errors. */
+function mapErr(e: unknown): ToolResult {
+  if (e instanceof InsufficientCreditsError) {
+    return {
+      output: `Insufficient credits: need ${e.required}, have ${e.available}. Top up in Settings → Billing.`,
+      isError: true,
+    }
+  }
+  if (e instanceof FinceptAuthError) {
+    return { output: "Not signed in to Fincept — authenticate at startup, then retry.", isError: true }
+  }
+  return { output: e instanceof FinceptError ? e.message : String((e as Error)?.message ?? e), isError: true }
+}
+
+/** Title with the server-reported credit cost + remaining balance, when present. */
+function ctitle(base: string, r: FinceptResult<unknown>): string {
+  return r.creditsCost ? `${base} · ${r.creditsCost}cr (${r.creditsBalance ?? "?"} left)` : base
+}
+
+/** Run a Fincept client call as a structured tool result (raw backend payload as output). */
 async function run<T>(p: Promise<FinceptResult<T>>, title: string): Promise<ToolResult> {
   try {
     const r = await p
-    const t = r.creditsCost ? `${title} · ${r.creditsCost}cr (${r.creditsBalance ?? "?"} left)` : title
-    return { output: r.data, title: t }
+    return { output: r.data, title: ctitle(title, r) }
   } catch (e) {
-    if (e instanceof InsufficientCreditsError) {
-      return {
-        output: `Insufficient credits: need ${e.required}, have ${e.available}. Top up in Settings → Billing.`,
-        isError: true,
-      }
-    }
-    if (e instanceof FinceptAuthError) {
-      return { output: "Not signed in to Fincept — authenticate at startup, then retry.", isError: true }
-    }
-    return { output: e instanceof FinceptError ? e.message : String((e as Error)?.message ?? e), isError: true }
+    return mapErr(e)
   }
 }
 
@@ -36,7 +46,10 @@ const sym = z.object({
  * credit-metered server-side. Registered via registerBuiltinTools.
  */
 export function createFinceptTools(): Tool[] {
-  const market = new FinceptMarket(new FinceptClient(loadConfig().fincept.baseUrl), () => loadConfig().fincept.apiKey)
+  const client = new FinceptClient(loadConfig().fincept.baseUrl)
+  const token = () => loadConfig().fincept.apiKey
+  const market = new FinceptMarket(client, token)
+  const research = new FinceptResearch(client, token)
 
   return [
     buildTool({
@@ -120,6 +133,70 @@ export function createFinceptTools(): Tool[] {
       effectClass: "read",
       isReadOnly: () => true,
       call: (i) => run(market.dividends(i.symbol, i.exchange), `dividends ${i.symbol}`),
+    }),
+    buildTool({
+      name: "fincept_research_llm",
+      description:
+        "Run a one-shot LLM inference for an isolated sub-analysis or second opinion (5 credits). Set thinking=true for extended reasoning. Server-cached for 1h.",
+      inputSchema: z.object({
+        prompt: z.string().max(50000),
+        thinking: z.boolean().optional(),
+        max_tokens: z.number().int().min(1).optional(),
+        temperature: z.number().min(0).max(2).optional(),
+        model: z.string().optional(),
+      }),
+      effectClass: "read",
+      isReadOnly: () => true,
+      call: async (i) => {
+        try {
+          const r = await research.llm(i.prompt, {
+            thinking: i.thinking,
+            maxTokens: i.max_tokens,
+            temperature: i.temperature,
+            model: i.model,
+          })
+          const out = r.data.thinking ? `${r.data.thinking}\n\n---\n\n${r.data.response}` : r.data.response
+          return { output: out, title: ctitle("llm", r) }
+        } catch (e) {
+          return mapErr(e)
+        }
+      },
+    }),
+    buildTool({
+      name: "fincept_visual_analysis",
+      description:
+        "Analyze an image (chart, document, screenshot) at a public URL with a vision model — gives the agent 'eyes' (10 credits).",
+      inputSchema: z.object({
+        image_url: z.string().url(),
+        prompt: z.string(),
+        max_tokens: z.number().int().min(1).optional(),
+        temperature: z.number().min(0).max(2).optional(),
+      }),
+      effectClass: "read",
+      isReadOnly: () => true,
+      call: (i) =>
+        run(
+          research.visualAnalysis(i.image_url, i.prompt, { maxTokens: i.max_tokens, temperature: i.temperature }),
+          `visual ${i.image_url.slice(0, 40)}`,
+        ),
+    }),
+    buildTool({
+      name: "fincept_grokipedia",
+      description:
+        "Look up a Grokipedia knowledge-base article by slug (1 credit). Set citations=true to include sources.",
+      inputSchema: z.object({
+        slug: z.string().max(200),
+        extract_refs: z.boolean().optional(),
+        truncate: z.number().int().min(1).optional(),
+        citations: z.boolean().optional(),
+      }),
+      effectClass: "read",
+      isReadOnly: () => true,
+      call: (i) =>
+        run(
+          research.grokipedia(i.slug, { extractRefs: i.extract_refs, truncate: i.truncate, citations: i.citations }),
+          `grokipedia ${i.slug}`,
+        ),
     }),
   ]
 }

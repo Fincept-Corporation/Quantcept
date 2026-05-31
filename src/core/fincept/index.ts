@@ -5,6 +5,8 @@ export { FinceptBilling } from "./billing"
 export type { FinceptRequest, FinceptResult } from "./client"
 export { FinceptClient } from "./client"
 export { FinceptMarket } from "./market"
+export type { GrokipediaArticle, LlmOptions, LlmResult, LlmTask, VisualResult } from "./research"
+export { FinceptResearch } from "./research"
 export { createFinceptTools } from "./tools"
 export type {
   Account,
