@@ -96,6 +96,21 @@ export const ConfigSchema = z.object({
    * (it pauses) until the full approve/resume loop lands.
    */
   trading: z.object({ enabled: z.boolean().default(false) }).default({ enabled: false }),
+  /**
+   * Fincept backend account. The mandatory auth gate stores the user's API key here (user-level
+   * settings only — never project, never committed). baseUrl is the dev default; switch to
+   * "https://api.fincept.in" before launch. Override either via FINCEPT_BASE_URL/FINCEPT_API_KEY.
+   */
+  fincept: z
+    .object({
+      baseUrl: z.string().min(1).default("http://localhost:8000"),
+      apiKey: z.string().optional(),
+      userId: z.string().optional(),
+      email: z.string().optional(),
+      username: z.string().optional(),
+      lastValidatedAt: z.string().optional(),
+    })
+    .default({ baseUrl: "http://localhost:8000" }),
 })
 
 export type Config = z.infer<typeof ConfigSchema>
@@ -122,4 +137,5 @@ export const defaultConfig: Config = {
   risk: { startingCash: 100_000 },
   broker: { kind: "paper", slippageBps: 5 },
   trading: { enabled: false },
+  fincept: { baseUrl: "http://localhost:8000" },
 }

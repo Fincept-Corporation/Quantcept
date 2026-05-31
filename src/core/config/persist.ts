@@ -42,3 +42,36 @@ export function clearVisionProvider(file: string = userSettingsFile()): void {
     writeSettingsFile(file, settings)
   }
 }
+
+export interface FinceptAuthSettings {
+  baseUrl?: string
+  apiKey?: string
+  userId?: string
+  email?: string
+  username?: string
+  lastValidatedAt?: string
+}
+
+/** Read the persisted fincept block from a settings file (default: user settings). */
+export function getFinceptAuth(file: string = userSettingsFile()): FinceptAuthSettings | undefined {
+  const s = readSettingsFile(file)
+  return (s.fincept as FinceptAuthSettings) ?? undefined
+}
+
+/**
+ * Merge auth fields into the fincept block of the USER settings file — kept out of any project
+ * repo so the API key is never committed (same rule as setVisionProvider). Preserves other settings.
+ */
+export function setFinceptAuth(patch: FinceptAuthSettings, file: string = userSettingsFile()): void {
+  const settings = readSettingsFile(file)
+  settings.fincept = { ...(settings.fincept as object), ...patch }
+  writeSettingsFile(file, settings)
+}
+
+/** Drop the stored key + account fields on logout, keeping only baseUrl. */
+export function clearFinceptAuth(file: string = userSettingsFile()): void {
+  const settings = readSettingsFile(file)
+  const prev = (settings.fincept as FinceptAuthSettings) ?? {}
+  settings.fincept = { baseUrl: prev.baseUrl }
+  writeSettingsFile(file, settings)
+}

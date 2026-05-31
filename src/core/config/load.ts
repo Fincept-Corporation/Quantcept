@@ -30,6 +30,14 @@ export function applyEnvOverrides(config: Config, env: Record<string, string | u
   if (next.visionProvider && !next.visionProvider.apiKey && env.OPENAI_API_KEY) {
     next.visionProvider = { ...next.visionProvider, apiKey: env.OPENAI_API_KEY }
   }
+  // Fincept backend base URL + key may come from env (e.g. CI, or a shared dev key).
+  if (env.FINCEPT_BASE_URL || env.FINCEPT_API_KEY) {
+    next.fincept = {
+      ...next.fincept,
+      ...(env.FINCEPT_BASE_URL ? { baseUrl: env.FINCEPT_BASE_URL } : {}),
+      ...(env.FINCEPT_API_KEY ? { apiKey: env.FINCEPT_API_KEY } : {}),
+    }
+  }
   return next
 }
 
