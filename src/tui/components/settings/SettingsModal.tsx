@@ -50,6 +50,10 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
   const renderer = useRenderer()
   const auth = props.auth
 
+  // Self-heal: if the account hasn't loaded yet (e.g. startup validated while the API was
+  // unreachable → "offline", with no auto-retry), re-fetch it now without disturbing the gate.
+  if (!auth.account) void auth.reloadAccount()
+
   const [view, setView] = createSignal<"menu" | string>("menu")
   const [cursor, setCursor] = createSignal(0)
   const [notice, setNotice] = createSignal<string | undefined>()
@@ -160,19 +164,25 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
     }
     if (key === "profile") {
       const a = auth.account
+      const fincept = loadConfig().fincept
       const editProfile = (apiField: string) => async (raw: string) => {
         const r = await auth.accountApi.updateProfile({ [apiField]: raw })
         if (r) {
-          await auth.refresh()
+          await auth.reloadAccount()
           setBump((n) => n + 1)
           flash("Profile updated")
         }
       }
       return [
-        { kind: "info", label: "Email", value: a?.email ?? "—" },
+        { kind: "info", label: "Email", value: a?.email ?? fincept.email ?? "—" },
         { kind: "info", label: "Plan", value: a?.account_type ?? "—" },
         { kind: "info", label: "Credits", value: a ? String(a.credit_balance) : "—" },
-        { kind: "string", label: "Username", value: () => a?.username ?? "", commit: editProfile("username") },
+        {
+          kind: "string",
+          label: "Username",
+          value: () => a?.username ?? fincept.username ?? "",
+          commit: editProfile("username"),
+        },
         { kind: "string", label: "Phone", value: () => a?.phone ?? "", commit: editProfile("phone") },
         { kind: "string", label: "Country", value: () => a?.country ?? "", commit: editProfile("country") },
         {
@@ -255,7 +265,7 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
               },
             }),
         },
-        { kind: "action", label: "Refresh account", run: () => auth.refresh().then(() => flash("Refreshed")) },
+        { kind: "action", label: "Refresh account", run: () => auth.reloadAccount().then(() => flash("Refreshed")) },
       ]
     }
     if (key === "permrules") {

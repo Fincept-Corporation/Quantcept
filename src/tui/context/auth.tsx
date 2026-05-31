@@ -71,6 +71,24 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
       }
     }
 
+    /**
+     * Re-fetch ONLY the account (/me) without flipping the global gate to "checking" (which would
+     * blank the screen). Recovers an "offline" session to "authed" on success. The account UI calls
+     * this so opening it always pulls fresh data — and self-heals if startup validation went offline.
+     */
+    async function reloadAccount() {
+      const t = token()
+      if (!t) return
+      try {
+        const me = await auth.me(t)
+        setAccount(me.data)
+        setFinceptAuth({ lastValidatedAt: new Date().toISOString() })
+        if (status() !== "authed") setStatus("authed")
+      } catch {
+        /* keep current status; the account view falls back to the stored email/username */
+      }
+    }
+
     function adopt(t: string, partial: { userId?: string; email?: string; username?: string }) {
       setToken(t)
       setFinceptAuth({ apiKey: t, ...partial, lastValidatedAt: new Date().toISOString() })
@@ -176,6 +194,7 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
       sync,
       learnings,
       refresh,
+      reloadAccount,
     }
   },
 })
