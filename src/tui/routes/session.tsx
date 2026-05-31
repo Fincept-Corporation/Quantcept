@@ -2,6 +2,7 @@ import { createTextAttributes, RGBA, type SyntaxStyle } from "@opentui/core"
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { MemoryModal } from "@tui/components/memory/MemoryModal"
 import { PluginsModal } from "@tui/components/plugins/PluginsModal"
+import { PositionsModal } from "@tui/components/positions/PositionsModal"
 import { batch, createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 
@@ -795,6 +796,18 @@ export function Session() {
     run: (_args, ctx) => ctx.showDialog(() => <MemoryModal onClose={ctx.closeDialog} />),
   }
   const unregisterMemory = commands.register(memoryModalCmd)
+
+  // /positions — read-only trading positions + order audit log (the persistent trade record).
+  const positionsCmd: ActionCommand = {
+    kind: "action",
+    id: "session.positions",
+    name: "positions",
+    description: "View trading positions & the order audit log",
+    category: "Trading",
+    source: "builtin",
+    run: (_args, ctx) => ctx.showDialog(() => <PositionsModal onClose={ctx.closeDialog} />),
+  }
+  const unregisterPositions = commands.register(positionsCmd)
   const copyCmd: ActionCommand = {
     kind: "action",
     id: "session.copy",
@@ -1054,6 +1067,7 @@ export function Session() {
     unregisterCheckpoints()
     unregisterRemember()
     unregisterMemory()
+    unregisterPositions()
     unregisterAgent?.()
     commands.clearHostHooks(hostHooks)
   })
