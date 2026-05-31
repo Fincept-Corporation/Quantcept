@@ -4,9 +4,11 @@ import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentu
 import { resetLogFloor, setLogFloor } from "@shared/logger"
 import { BuddyProvider, useBuddy } from "@tui/buddy/BuddyContext"
 import { buddyCommands } from "@tui/buddy/buddy.commands"
+import { AuthGate } from "@tui/components/auth/AuthGate"
 import { CommandPalette } from "@tui/components/command-palette"
 import { AgentsProvider } from "@tui/context/agents"
 import { type Args, ArgsProvider } from "@tui/context/args"
+import { AuthProvider, useAuth } from "@tui/context/auth"
 import { CommandProvider, useCommands } from "@tui/context/command"
 import { createExit, type Exit, ExitProvider, useExit } from "@tui/context/exit"
 import { KVProvider } from "@tui/context/kv"
@@ -133,7 +135,9 @@ async function mountApp(input: AppInput & { keymap: ReturnType<typeof createDefa
                                   <SkillsProvider>
                                     <AgentsProvider>
                                       <BuddyProvider>
-                                        <App />
+                                        <AuthProvider>
+                                          <App />
+                                        </AuthProvider>
                                       </BuddyProvider>
                                     </AgentsProvider>
                                   </SkillsProvider>
@@ -157,6 +161,7 @@ async function mountApp(input: AppInput & { keymap: ReturnType<typeof createDefa
 
 function App() {
   const route = useRoute()
+  const auth = useAuth()
   const dimensions = useTerminalDimensions()
   const { theme } = useTheme()
   const renderer = useRenderer()
@@ -189,11 +194,23 @@ function App() {
     >
       <box flexGrow={1} minHeight={0} flexDirection="column">
         <Switch>
-          <Match when={route.data.type === "home"}>
-            <Home />
+          <Match when={auth.status === "checking"}>
+            <box flexGrow={1} alignItems="center" justifyContent="center">
+              <text fg={theme.textMuted}>Connecting to Fincept…</text>
+            </box>
           </Match>
-          <Match when={route.data.type === "session"}>
-            <Session />
+          <Match when={auth.status === "unauthed"}>
+            <AuthGate />
+          </Match>
+          <Match when={auth.status === "authed" || auth.status === "offline"}>
+            <Switch>
+              <Match when={route.data.type === "home"}>
+                <Home />
+              </Match>
+              <Match when={route.data.type === "session"}>
+                <Session />
+              </Match>
+            </Switch>
           </Match>
         </Switch>
       </box>
