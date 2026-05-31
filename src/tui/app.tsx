@@ -7,6 +7,7 @@ import { buddyCommands } from "@tui/buddy/buddy.commands"
 import { AuthGate } from "@tui/components/auth/AuthGate"
 import { authCommands } from "@tui/components/auth/auth.commands"
 import { CommandPalette } from "@tui/components/command-palette"
+import { settingsCommands } from "@tui/components/settings/settings.commands"
 import { AgentsProvider } from "@tui/context/agents"
 import { type Args, ArgsProvider } from "@tui/context/args"
 import { AuthProvider, useAuth } from "@tui/context/auth"
@@ -170,7 +171,9 @@ function App() {
 
   const buddy = useBuddy()
   const commands = useCommands()
-  const unregister = [...buddyCommands(buddy), ...authCommands(auth)].map((c) => commands.register(c))
+  const unregister = [...buddyCommands(buddy), ...authCommands(auth), ...settingsCommands(auth)].map((c) =>
+    commands.register(c),
+  )
   onCleanup(() => {
     for (const u of unregister) u()
   })

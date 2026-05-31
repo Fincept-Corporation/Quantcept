@@ -1,0 +1,528 @@
+import { useKeyboard, useRenderer } from "@opentui/solid"
+import type { AuthContext } from "@tui/context/auth"
+import { useTheme } from "@tui/context/theme"
+import { createMemo, createSignal, For, Show } from "solid-js"
+import { commitField, configSections, cycleValue, type Field } from "./fields"
+
+// Row model — everything in a section is one of these.
+type EditRow = {
+  kind: "string" | "secret" | "number" | "enum" | "bool"
+  label: string
+  value: () => string
+  choices?: string[]
+  hint?: string
+  commit: (raw: string) => void | Promise<void>
+}
+type ActionRow = { kind: "action"; label: string; danger?: boolean; run: () => void | Promise<void> }
+type InfoRow = { kind: "info"; label: string; value: string }
+type Row = EditRow | ActionRow | InfoRow
+
+type MenuItem = { key: string; label: string; group: string }
+
+// Multi-step text input (also used for single-field editing).
+interface InputSpec {
+  title: string
+  fields: { label: string; secret?: boolean }[]
+  onComplete: (values: string[]) => void | Promise<void>
+}
+
+const ACCOUNT_SECTIONS: MenuItem[] = [
+  { key: "profile", label: "Profile & key", group: "Account" },
+  { key: "security", label: "Security (MFA, password)", group: "Account" },
+  { key: "notifications", label: "Notifications", group: "Account" },
+  { key: "usage", label: "Usage", group: "Account" },
+  { key: "transactions", label: "Transactions", group: "Account" },
+  { key: "logins", label: "Login history", group: "Account" },
+  { key: "subscriptions", label: "Data subscriptions", group: "Account" },
+  { key: "danger", label: "Danger zone", group: "Account" },
+]
+
+export function SettingsModal(props: { auth: AuthContext; onClose: () => void }) {
+  const themeCtx = useTheme()
+  const { theme } = themeCtx
+  const renderer = useRenderer()
+  const auth = props.auth
+
+  const [view, setView] = createSignal<"menu" | string>("menu")
+  const [cursor, setCursor] = createSignal(0)
+  const [notice, setNotice] = createSignal<string | undefined>()
+  const [err, setErr] = createSignal<string | undefined>()
+  const [bump, setBump] = createSignal(0) // force re-read of config-backed rows after a commit
+
+  // async section rows (usage/transactions/logins/notifications/subscriptions)
+  const [asyncRows, setAsyncRows] = createSignal<InfoRow[] | null>(null)
+  const [loading, setLoading] = createSignal(false)
+
+  // text input (single-field edit or multi-step action)
+  const [input, setInput] = createSignal<InputSpec | null>(null)
+  const [stepIdx, setStepIdx] = createSignal(0)
+  const [vals, setVals] = createSignal<string[]>([])
+  const [buf, setBuf] = createSignal("")
+
+  const rerender = () => renderer.requestRender()
+  const flash = (m: string) => {
+    setNotice(m)
+    setErr(undefined)
+    rerender()
+  }
+  const fail = (m: string) => {
+    setErr(m)
+    setNotice(undefined)
+    rerender()
+  }
+
+  const menu = createMemo<MenuItem[]>(() => [
+    ...ACCOUNT_SECTIONS,
+    { key: "appearance", label: "Appearance", group: "Settings" },
+    ...configSections().map((s) => ({ key: `cfg:${s.key}`, label: s.label, group: "Settings" })),
+  ])
+
+  function startInput(spec: InputSpec, prefill = "") {
+    setInput(spec)
+    setStepIdx(0)
+    setVals([])
+    setBuf(prefill)
+    setErr(undefined)
+    rerender()
+  }
+
+  // Build the rows for the current non-async section.
+  function syncRows(key: string): Row[] {
+    bump() // dependency so a commit re-reads
+    if (key === "appearance") {
+      return [
+        {
+          kind: "enum",
+          label: "Theme",
+          choices: Object.keys(themeCtx.all()),
+          value: () => themeCtx.selected,
+          commit: (v) => {
+            themeCtx.set(v)
+            flash("Theme applied")
+          },
+        },
+        {
+          kind: "enum",
+          label: "Mode",
+          choices: ["dark", "light"],
+          value: () => themeCtx.mode(),
+          commit: (v) => {
+            themeCtx.setMode(v === "light" ? "light" : "dark")
+            flash("Mode applied")
+          },
+        },
+      ]
+    }
+    if (key.startsWith("cfg:")) {
+      const sec = configSections().find((s) => s.key === key.slice(4))
+      return (sec?.fields ?? []).map((f: Field) => ({
+        kind: f.kind,
+        label: f.label,
+        value: f.get,
+        choices: f.choices,
+        hint: f.hint,
+        commit: async (raw: string) => {
+          commitField(f, raw)
+          setBump((n) => n + 1)
+          flash("Saved · applies next session")
+        },
+      }))
+    }
+    if (key === "profile") {
+      const a = auth.account
+      const editProfile = (apiField: string) => async (raw: string) => {
+        const r = await auth.accountApi.updateProfile({ [apiField]: raw })
+        if (r) {
+          await auth.refresh()
+          setBump((n) => n + 1)
+          flash("Profile updated")
+        }
+      }
+      return [
+        { kind: "info", label: "Email", value: a?.email ?? "—" },
+        { kind: "info", label: "Plan", value: a?.account_type ?? "—" },
+        { kind: "info", label: "Credits", value: a ? String(a.credit_balance) : "—" },
+        { kind: "string", label: "Username", value: () => a?.username ?? "", commit: editProfile("username") },
+        { kind: "string", label: "Phone", value: () => a?.phone ?? "", commit: editProfile("phone") },
+        { kind: "string", label: "Country", value: () => a?.country ?? "", commit: editProfile("country") },
+        {
+          kind: "string",
+          label: "Country code",
+          value: () => a?.country_code ?? "",
+          commit: editProfile("country_code"),
+        },
+        {
+          kind: "action",
+          label: "Regenerate API key",
+          run: async () => {
+            await auth.regenerate()
+            flash("API key regenerated")
+          },
+        },
+        { kind: "action", label: "Log out", run: () => auth.logout().then(props.onClose) },
+      ]
+    }
+    if (key === "security") {
+      return [
+        {
+          kind: "action",
+          label: "Change password",
+          run: () =>
+            startInput({
+              title: "Change password",
+              fields: [
+                { label: "Current password", secret: true },
+                { label: "New password", secret: true },
+              ],
+              onComplete: async ([oldP, newP]) => {
+                const r = await auth.accountApi.changePassword(oldP ?? "", newP ?? "")
+                if (r) flash("Password changed")
+                else fail("Couldn't change password")
+              },
+            }),
+        },
+        {
+          kind: "action",
+          label: "Enable MFA (email code on login)",
+          run: async () => {
+            await auth.accountApi.mfaEnable()
+            flash("MFA enabled")
+          },
+        },
+        {
+          kind: "action",
+          label: "Disable MFA",
+          run: () =>
+            startInput({
+              title: "Disable MFA",
+              fields: [{ label: "Password", secret: true }],
+              onComplete: async ([pw]) => {
+                await auth.accountApi.mfaDisable(pw ?? "")
+                flash("MFA disabled")
+              },
+            }),
+        },
+      ]
+    }
+    if (key === "danger") {
+      return [
+        {
+          kind: "action",
+          label: "Delete account (permanent)",
+          danger: true,
+          run: () =>
+            startInput({
+              title: "Delete account — enter password to confirm",
+              fields: [{ label: "Password", secret: true }],
+              onComplete: async ([pw]) => {
+                await auth.accountApi.deleteAccount(pw ?? "")
+                await auth.logout()
+                props.onClose()
+              },
+            }),
+        },
+      ]
+    }
+    return []
+  }
+
+  // Load an async account view into asyncRows.
+  async function loadAsync(key: string) {
+    setLoading(true)
+    setAsyncRows(null)
+    setErr(undefined)
+    try {
+      if (key === "usage") {
+        const r = await auth.accountApi.usage()
+        setAsyncRows(
+          (r.data ?? []).map((u) => ({
+            kind: "info",
+            label: `${u.method} ${u.endpoint}`,
+            value: `${u.credits_used}cr · ${u.status_code}`,
+          })),
+        )
+      } else if (key === "transactions") {
+        const r = await auth.accountApi.transactions()
+        setAsyncRows(
+          (r.data ?? []).map((t) => ({
+            kind: "info",
+            label: `${t.created_at?.slice(0, 10)} ${t.payment_gateway}`,
+            value: `${t.credits}cr · ${t.status}`,
+          })),
+        )
+      } else if (key === "logins") {
+        const r = await auth.accountApi.loginHistory()
+        setAsyncRows(
+          (r.data ?? []).map((l) => ({
+            kind: "info",
+            label: `${l.created_at?.slice(0, 16)} ${l.ip_address}`,
+            value: l.login_successful ? "ok" : l.failure_reason || "failed",
+          })),
+        )
+      } else if (key === "subscriptions") {
+        const r = await auth.accountApi.subscriptions()
+        const rows: InfoRow[] = (r.data ?? []).map((s) => ({
+          kind: "info",
+          label: s.display_name,
+          value: s.is_active ? "active" : "inactive",
+        }))
+        setAsyncRows(rows)
+      } else if (key === "notifications") {
+        const r = await auth.accountApi.notifications()
+        setAsyncRows(
+          (r.data ?? []).map((n) => ({
+            kind: "info",
+            label: (n.is_read ? "  " : "● ") + n.title,
+            value: n.created_at?.slice(0, 10) ?? "",
+          })),
+        )
+      }
+    } catch (e) {
+      fail((e as Error).message)
+    } finally {
+      setLoading(false)
+      rerender()
+    }
+  }
+
+  const ASYNC = new Set(["usage", "transactions", "logins", "subscriptions", "notifications"])
+
+  function enterSection(key: string) {
+    setView(key)
+    setCursor(0)
+    setNotice(undefined)
+    setErr(undefined)
+    if (ASYNC.has(key)) void loadAsync(key)
+  }
+
+  function rowsForView(): Row[] {
+    const v = view()
+    if (v === "menu") return []
+    if (ASYNC.has(v)) return asyncRows() ?? []
+    return syncRows(v)
+  }
+
+  // ── keyboard ────────────────────────────────────────────────────────────
+  // biome-ignore lint/suspicious/noExplicitAny: @opentui keyboard event is untyped (matches ThemePicker/CommandPalette)
+  useKeyboard((e: any) => {
+    // text-input mode (editing a field or a multi-step action prompt)
+    const inSpec = input()
+    if (inSpec) {
+      if (e.name === "escape") {
+        e.preventDefault?.()
+        setInput(null)
+        rerender()
+        return
+      }
+      if (e.name === "return" || e.name === "kpenter") {
+        e.preventDefault?.()
+        const collected = [...vals(), buf()]
+        if (stepIdx() < inSpec.fields.length - 1) {
+          setVals(collected)
+          setStepIdx(stepIdx() + 1)
+          setBuf("")
+          rerender()
+        } else {
+          setInput(null)
+          void Promise.resolve(inSpec.onComplete(collected)).catch((x) => fail((x as Error).message))
+        }
+        return
+      }
+      if (e.name === "backspace") {
+        e.preventDefault?.()
+        setBuf((b) => b.slice(0, -1))
+        rerender()
+        return
+      }
+      if (typeof e.sequence === "string" && e.sequence.length === 1 && !e.ctrl && !e.meta) {
+        e.preventDefault?.()
+        setBuf((b) => b + e.sequence)
+        rerender()
+      }
+      return
+    }
+
+    // menu vs section navigation
+    const list = view() === "menu" ? menu() : rowsForView()
+    if (e.name === "escape" || (e.name === "left" && view() !== "menu")) {
+      e.preventDefault?.()
+      if (view() === "menu") props.onClose()
+      else {
+        setView("menu")
+        setCursor(0)
+        setAsyncRows(null)
+      }
+      rerender()
+      return
+    }
+    if (e.name === "up") {
+      e.preventDefault?.()
+      setCursor((c) => Math.max(0, c - 1))
+      rerender()
+      return
+    }
+    if (e.name === "down") {
+      e.preventDefault?.()
+      setCursor((c) => Math.min(Math.max(0, list.length - 1), c + 1))
+      rerender()
+      return
+    }
+
+    if (view() === "menu") {
+      if (e.name === "return" || e.name === "kpenter") {
+        e.preventDefault?.()
+        const item = menu()[cursor()]
+        if (item) enterSection(item.key)
+        rerender()
+      }
+      return
+    }
+
+    // inside a section
+    const row = rowsForView()[cursor()]
+    if (!row || row.kind === "info") return
+    if (row.kind === "action") {
+      if (e.name === "return" || e.name === "kpenter") {
+        e.preventDefault?.()
+        void Promise.resolve(row.run()).catch((x) => fail((x as Error).message))
+      }
+      return
+    }
+    // EditRow
+    if (row.kind === "enum" || row.kind === "bool") {
+      if (e.name === "left" || e.name === "right") {
+        e.preventDefault?.()
+        const f: Field = { label: row.label, kind: row.kind, path: "", get: row.value, choices: row.choices }
+        const next = cycleValue(f, row.value(), e.name === "right" ? 1 : -1)
+        void Promise.resolve(row.commit(next)).catch((x) => fail((x as Error).message))
+      }
+      if (e.name === "return" || e.name === "kpenter") {
+        e.preventDefault?.()
+        const f: Field = { label: row.label, kind: row.kind, path: "", get: row.value, choices: row.choices }
+        void Promise.resolve(row.commit(cycleValue(f, row.value(), 1))).catch((x) => fail((x as Error).message))
+      }
+      return
+    }
+    // string | secret | number → open inline editor
+    if (e.name === "return" || e.name === "kpenter") {
+      e.preventDefault?.()
+      const r = row
+      startInput(
+        {
+          title: r.label,
+          fields: [{ label: r.label, secret: r.kind === "secret" }],
+          onComplete: ([v]) => r.commit(v ?? ""),
+        },
+        r.value(),
+      )
+    }
+  })
+
+  // ── render ────────────────────────────────────────────────────────────────
+  const WINDOW = 14
+  function windowed<T>(items: T[]): { slice: T[]; offset: number } {
+    if (items.length <= WINDOW) return { slice: items, offset: 0 }
+    const off = Math.min(Math.max(0, cursor() - Math.floor(WINDOW / 2)), items.length - WINDOW)
+    return { slice: items.slice(off, off + WINDOW), offset: off }
+  }
+
+  function rowText(row: Row): string {
+    if (row.kind === "info") return ""
+    if (row.kind === "action") return ""
+    if (row.kind === "secret") {
+      const v = row.value()
+      return v ? "••••••" : "(unset)"
+    }
+    return row.value() || "(default)"
+  }
+
+  return (
+    <box flexDirection="column" minWidth={62} gap={0}>
+      <text fg={theme.accent} attributes={undefined}>
+        {view() === "menu" ? "⚙  Settings & Account" : `⚙  ${menu().find((m) => m.key === view())?.label ?? view()}`}
+      </text>
+      <box height={1} minHeight={0} />
+
+      <Show when={input()}>
+        {(spec) => (
+          <box flexDirection="column" gap={0}>
+            <text fg={theme.accent}>{spec().title}</text>
+            <For each={vals()}>
+              {(v, i) => (
+                <text fg={theme.textMuted}>
+                  {spec().fields[i()]?.label}: {spec().fields[i()]?.secret ? "••••••" : v}
+                </text>
+              )}
+            </For>
+            <text fg={theme.text}>
+              {spec().fields[stepIdx()]?.label}: {spec().fields[stepIdx()]?.secret ? "•".repeat(buf().length) : buf()}
+              <span style={{ fg: theme.accent }}>▏</span>
+            </text>
+            <text fg={theme.textMuted}>Enter · Esc cancel</text>
+          </box>
+        )}
+      </Show>
+
+      <Show when={!input() && view() === "menu"}>
+        <box flexDirection="column">
+          <For each={menu()}>
+            {(item, i) => {
+              const sel = () => i() === cursor()
+              const firstOfGroup = () => i() === 0 || menu()[i() - 1]?.group !== item.group
+              return (
+                <box flexDirection="column">
+                  <Show when={firstOfGroup()}>
+                    <text fg={theme.textMuted}>{item.group.toUpperCase()}</text>
+                  </Show>
+                  <text fg={sel() ? theme.accent : theme.text} bg={sel() ? theme.backgroundElement : undefined}>
+                    {(sel() ? "› " : "  ") + item.label}
+                  </text>
+                </box>
+              )
+            }}
+          </For>
+        </box>
+      </Show>
+
+      <Show when={!input() && view() !== "menu"}>
+        <Show when={!loading()} fallback={<text fg={theme.textMuted}>Loading…</text>}>
+          <box flexDirection="column">
+            <Show when={rowsForView().length > 0} fallback={<text fg={theme.textMuted}>Nothing here.</text>}>
+              <For each={windowed(rowsForView()).slice}>
+                {(row, i) => {
+                  const idx = () => windowed(rowsForView()).offset + i()
+                  const sel = () => idx() === cursor()
+                  const marker = row.kind === "action" ? (row.danger ? "⚠ " : "› ") : sel() ? "› " : "  "
+                  const fg = row.kind === "action" && row.danger ? "#ff5555" : sel() ? theme.accent : theme.text
+                  return (
+                    <box
+                      flexDirection="row"
+                      justifyContent="space-between"
+                      gap={2}
+                      backgroundColor={sel() ? theme.backgroundElement : undefined}
+                    >
+                      <text fg={fg}>
+                        {marker}
+                        {row.label}
+                      </text>
+                      <text fg={theme.textMuted}>{rowText(row)}</text>
+                    </box>
+                  )
+                }}
+              </For>
+            </Show>
+          </box>
+        </Show>
+      </Show>
+
+      <box height={1} minHeight={0} />
+      <Show when={notice()}>
+        <text fg={theme.accent}>{notice()}</text>
+      </Show>
+      <Show when={err()}>
+        <text fg="#ff5555">{err()}</text>
+      </Show>
+      <text fg={theme.textMuted}>↑/↓ move · Enter edit/act · ‹ ›/Enter cycle · Esc back</text>
+    </box>
+  )
+}
