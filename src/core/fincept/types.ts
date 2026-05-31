@@ -51,4 +51,90 @@ export interface Account {
   support_type: string
   rate_limit_per_hour: number
   api_key: string
+  // present on GET /v1/users/me (not on the lighter auth/status payload)
+  credits_expire_at?: string | null
+  phone?: string
+  country?: string
+  country_code?: string
+  created_at?: string
+  notify_email?: boolean
+  notify_telegram?: boolean
+  notify_in_app?: boolean
+}
+
+export interface ProfilePatch {
+  username?: string
+  phone?: string
+  country?: string
+  country_code?: string
+}
+
+export interface UsageEntry {
+  endpoint: string
+  method: string
+  credits_used: number
+  response_time_ms: number
+  status_code: number
+  created_at: string
+}
+
+export interface TransactionEntry {
+  transaction_id: string
+  payment_gateway: string
+  credits: number
+  amount_cents: number
+  currency: string
+  status: string
+  created_at: string
+  completed_at?: string | null
+}
+
+export interface LoginEntry {
+  ip_address: string
+  user_agent: string
+  device_info: string
+  login_source: string
+  country: string
+  city: string
+  login_successful: boolean
+  failure_reason: string
+  created_at: string
+}
+
+export interface Notification {
+  id: number
+  title: string
+  description: string
+  message: string
+  category: string
+  image_url: string
+  action_url: string
+  is_read: boolean
+  created_at: string
+  read_at?: string | null
+}
+
+export interface NotificationPrefs {
+  notify_email: boolean
+  notify_telegram: boolean
+  notify_in_app: boolean
+  telegram_chat_id: string
+  telegram_connected: boolean
+}
+
+export interface NotificationPrefsPatch {
+  notify_email?: boolean
+  notify_telegram?: boolean
+  notify_in_app?: boolean
+  telegram_chat_id?: string
+}
+
+export interface Subscription {
+  id: number
+  database_name: string
+  display_name: string
+  subscription_type: string
+  is_active: boolean
+  subscribed_at: string
+  expires_at?: string | null
 }
