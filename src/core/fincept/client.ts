@@ -1,0 +1,86 @@
+import { FinceptAuthError, FinceptError, InsufficientCreditsError } from "@shared/errors"
+import type { FinceptEnvelope } from "./types"
+
+export interface FinceptRequest {
+  method: "GET" | "POST" | "PUT" | "DELETE"
+  path: string
+  body?: unknown
+  token?: string
+  idempotencyKey?: string
+  timeoutMs?: number
+}
+
+export interface FinceptResult<T> {
+  data: T
+  message?: string
+  creditsBalance?: number
+  creditsCost?: number
+}
+
+/**
+ * Minimal HTTP client for the Fincept backend. Parses the standard response envelope
+ * ({ success, data, error, ... }) and maps failures to typed errors:
+ *  - 401              -> FinceptAuthError      (key missing/invalid/revoked -> re-gate)
+ *  - 402 / insufficient_credits -> InsufficientCreditsError(required, available)
+ *  - other non-2xx    -> FinceptError(message, <error code>)
+ *  - network/timeout  -> FinceptError(message, "NETWORK")
+ * Mirrors the LLM adapter pattern in core/llm/adapters.
+ */
+export class FinceptClient {
+  constructor(private readonly baseUrl: string) {}
+
+  async request<T>(req: FinceptRequest): Promise<FinceptResult<T>> {
+    const url = this.baseUrl.replace(/\/+$/, "") + req.path
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    if (req.token) headers.Authorization = `Bearer ${req.token}`
+    if (req.idempotencyKey) headers["Idempotency-Key"] = req.idempotencyKey
+
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), req.timeoutMs ?? 30_000)
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: req.method,
+        headers,
+        body: req.body === undefined ? undefined : JSON.stringify(req.body),
+        signal: ctrl.signal,
+      })
+    } catch (e) {
+      throw new FinceptError(`network error: ${(e as Error)?.message ?? String(e)}`, "NETWORK")
+    } finally {
+      clearTimeout(timer)
+    }
+
+    let env: FinceptEnvelope<T> = {} as FinceptEnvelope<T>
+    const text = await res.text()
+    if (text) {
+      try {
+        env = JSON.parse(text) as FinceptEnvelope<T>
+      } catch {
+        /* non-JSON body — leave env empty and fall through to status-based error */
+      }
+    }
+
+    if (!res.ok || env.success === false) {
+      const code = env.error ?? `http_${res.status}`
+      const msg = env.message ?? `Request failed (${res.status})`
+      if (res.status === 401) throw new FinceptAuthError(msg)
+      if (res.status === 402 || code === "insufficient_credits") {
+        const c = env.credits ?? { required: 0, available: 0 }
+        throw new InsufficientCreditsError(c.required, c.available, msg)
+      }
+      throw new FinceptError(msg, code)
+    }
+
+    const num = (h: string) => {
+      const v = res.headers.get(h)
+      return v == null ? undefined : Number(v)
+    }
+    return {
+      data: env.data as T,
+      message: env.message,
+      creditsBalance: num("Credits-Balance"),
+      creditsCost: num("Credits-Cost"),
+    }
+  }
+}
