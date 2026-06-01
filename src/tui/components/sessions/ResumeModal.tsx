@@ -90,9 +90,7 @@ export function ResumeModal(props: { onClose: () => void; onResume: (id: string)
     if (view() !== "preview") return { first: "", last: "" }
     const sel = items()[nav.cursor()]
     if (!sel) return { first: "", last: "" }
-    const msgs = storage
-      .loadSession(sel.id)
-      .filter((r): r is Extract<TranscriptRecord, { t: "msg" }> => r.t === "msg")
+    const msgs = storage.loadSession(sel.id).filter((r): r is Extract<TranscriptRecord, { t: "msg" }> => r.t === "msg")
     return {
       first: msgs.find((m) => m.role === "user")?.content ?? "",
       last: [...msgs].reverse().find((m) => m.role === "assistant")?.content ?? "",
@@ -102,9 +100,7 @@ export function ResumeModal(props: { onClose: () => void; onResume: (id: string)
   return (
     <ModalFrame
       title="↻ Resume a session"
-      footer={
-        view() === "list" ? "↑/↓ move · → preview · Enter resume · type to search · Esc close" : "←/Esc back"
-      }
+      footer={view() === "list" ? "↑/↓ move · → preview · Enter resume · type to search · Esc close" : "←/Esc back"}
       notice={notice.notice()}
     >
       <Show
