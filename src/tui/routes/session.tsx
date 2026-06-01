@@ -19,6 +19,8 @@ import { registerBuiltinTools } from "@core/agent/registry"
 import { SYSTEM_PROMPT } from "@core/agent/system"
 import { createTaskTool } from "@core/agent/task-tool"
 import { loadConfig } from "@core/config/load"
+import { FinceptChat } from "@core/fincept/chat"
+import { FinceptClient } from "@core/fincept/client"
 import { HookRegistry } from "@core/hooks/registry"
 import { runHooks } from "@core/hooks/runner"
 import type { HookRunner } from "@core/hooks/types"
@@ -163,6 +165,16 @@ export function Session() {
   const hookRunner: HookRunner = { fire: (event) => runHooks(pluginHooks(), event) }
   const [activeAgent, setActiveAgent] = createSignal<LoadedAgent | undefined>(undefined)
   const config = loadConfig()
+  // Cloud chat: server-side generation via the Fincept chat plane. Local: the
+  // on-device agent loop + SessionStore. Switched by chat.mode (Settings).
+  const cloudMode = () => config.chat.mode === "cloud"
+  // Cloud conversation bound to this session — created lazily on the first turn.
+  let cloudConvId: string | null = null
+  function makeChat(): FinceptChat | null {
+    const f = loadConfig().fincept
+    if (!f.apiKey) return null
+    return new FinceptChat(new FinceptClient(f.baseUrl), f.apiKey, f.baseUrl)
+  }
   const activeProvider = () => {
     // `||` (not `??`) so an empty-string model from any agent source also inherits the
     // configured model — an empty model would otherwise break the provider call.
@@ -372,7 +384,8 @@ export function Session() {
         })
       }),
     )
-    if (content.length > 0) {
+    // Local mode persists to the on-device store; cloud mode persists server-side.
+    if (content.length > 0 && !cloudMode()) {
       const id = sessionData().sessionID
       storage.appendEvent(id, { t: "msg", role, content, ts })
       // Derive the session title from the first user message (write-once).
@@ -383,7 +396,7 @@ export function Session() {
   onMount(() => {
     const id = sessionData().sessionID
     const cwd = process.cwd()
-    const existing = storage.loadSession(id)
+    const existing = cloudMode() ? [] : storage.loadSession(id)
     if (existing.length > 0) {
       // Resume: replay the transcript into the message store.
       setMessages(
@@ -400,7 +413,7 @@ export function Session() {
           }
         }),
       )
-    } else {
+    } else if (!cloudMode()) {
       // New session: write the meta line.
       storage.createSession({ id, cwd })
     }
@@ -531,6 +544,73 @@ export function Session() {
       })
     }
     renderer.requestRender()
+  }
+
+  // Cloud chat turn: send the user message to the Fincept chat plane and stream
+  // the server-generated reply (SSE) into the live assistant message. Mirrors
+  // runTurn's streaming/error/abort behavior; persistence is server-side.
+  async function runCloudTurn(text: string) {
+    const chat = makeChat()
+    if (!chat) {
+      updateLastAssistantMessage("Error: sign in to Fincept for cloud chat, or switch to local in Settings.")
+      buddy.react("error")
+      setLoading(false)
+      return
+    }
+    turnAbortController = new AbortController()
+    let genId = ""
+    try {
+      if (!cloudConvId) {
+        const created = await chat.createConversation({ title: text.slice(0, 60), source: "cli" })
+        cloudConvId = created.data.id
+      }
+      const sent = await chat.send(
+        cloudConvId,
+        { content: text, client_message_id: crypto.randomUUID(), mode: "deep", source: "cli", auto_approve: autoApprove() },
+        crypto.randomUUID(),
+      )
+      genId = sent.data.generation_id
+      for await (const ev of chat.streamGeneration(genId, { signal: turnAbortController.signal })) {
+        if (ev.type === "text-delta") {
+          textCoalescer.push(ev.text)
+        } else if (ev.type === "tool-start") {
+          toast.show({ message: `Running ${ev.tool}…`, variant: "info" })
+        } else if (ev.type === "approval-required") {
+          // v1: approval follows the session auto-accept toggle (shift+tab). Rich
+          // per-tool approval in cloud mode is a follow-up.
+          await chat.approveGeneration(genId, { approved: autoApprove() }).catch(() => {})
+          if (!autoApprove()) {
+            toast.show({ message: `Tool "${ev.tool}" needs approval — enable auto-accept (shift+tab).`, variant: "warning" })
+          }
+        } else if (ev.type === "finish") {
+          const u = ev.usage
+          if (u) setTokensPrev((p) => p + u.inputTokens + u.outputTokens)
+        } else if (ev.type === "error") {
+          textCoalescer.dispose()
+          updateLastAssistantMessage(`Error: ${ev.message || ev.code}`)
+          buddy.react("error")
+          return
+        }
+        // "done" ends the async iterator.
+      }
+      textCoalescer.flush()
+      buddy.react("success")
+    } catch (error) {
+      textCoalescer.dispose()
+      if (turnAbortController?.signal.aborted) {
+        if (genId) void chat.cancelGeneration(genId).catch(() => {})
+        buddy.react("success")
+      } else {
+        updateLastAssistantMessage(`Error: ${error instanceof Error ? error.message : String(error)}`)
+        buddy.react("error")
+      }
+    } finally {
+      setLoading(false)
+      setTokensLive(0)
+      renderer.requestRender()
+      // Reconcile credits/account after a server-billed turn.
+      void auth.reloadAccount()
+    }
   }
 
   async function runTurn(opts: { system: string; toolRegistry: ToolRegistry }) {
@@ -675,6 +755,11 @@ export function Session() {
     setTokensLive(0)
     addMessage("assistant", "")
     slideToNewest()
+    // Cloud mode: server-side generation; skip the local agent loop + plugin hooks.
+    if (cloudMode()) {
+      await runCloudTurn(text)
+      return
+    }
     let system = baseSystem()
     // Plugin UserPromptSubmit hooks may inject extra context for this turn.
     const pre = await hookRunner.fire({

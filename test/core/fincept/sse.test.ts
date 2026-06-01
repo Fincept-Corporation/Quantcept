@@ -60,7 +60,11 @@ describe("toChatEvent", () => {
     }))
   test("done", () => expect(toChatEvent({ event: "done", data: "{}" })).toEqual({ type: "done" }))
   test("unknown event passes through with parsed data", () =>
-    expect(toChatEvent({ event: "step-finish", data: '{"a":1}' })).toEqual({ type: "step-finish", data: { a: 1 } }))
+    expect(toChatEvent({ event: "step-finish", data: '{"a":1}' })).toEqual({
+      type: "passthrough",
+      event: "step-finish",
+      data: { a: 1 },
+    }))
   test("malformed data does not throw", () =>
     expect(toChatEvent({ event: "text-delta", data: "{not json" })).toEqual({ type: "text-delta", text: "" }))
 })

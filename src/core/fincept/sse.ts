@@ -19,7 +19,7 @@ export type ChatStreamEvent =
   | { type: "finish"; stopReason: string; usage?: { inputTokens: number; outputTokens: number } }
   | { type: "error"; code: string; message: string }
   | { type: "done" }
-  | { type: string; data: unknown }
+  | { type: "passthrough"; event: string; data: unknown }
 
 /**
  * Split a buffer into complete SSE frames (separated by a blank line), returning
@@ -98,6 +98,6 @@ export function toChatEvent(frame: SseFrame): ChatStreamEvent {
     case "done":
       return { type: "done" }
     default:
-      return { type: ev, data: p }
+      return { type: "passthrough", event: ev, data: p }
   }
 }
