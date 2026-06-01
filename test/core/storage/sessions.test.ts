@@ -82,4 +82,18 @@ describe("SessionStore", () => {
     expect(() => store.appendEvent("never-created", { t: "msg", role: "user", content: "x", ts: 1 })).not.toThrow()
     expect(store.loadSession("never-created")).toEqual([])
   })
+
+  test("mostRecent returns the newest session by updated_at, scoped to project", () => {
+    store.createSession({ id: "s1", cwd: "/repo/a", title: "Old" })
+    store.touch("s1", { updatedAt: 100 })
+    store.createSession({ id: "s2", cwd: "/repo/a", title: "New" })
+    store.touch("s2", { updatedAt: 200 })
+    store.createSession({ id: "s3", cwd: "/repo/b" }) // different project, newer
+    store.touch("s3", { updatedAt: 999 })
+    expect(store.mostRecent(store.projectHashFor("/repo/a"))?.id).toBe("s2")
+  })
+
+  test("mostRecent returns null when the project has no sessions", () => {
+    expect(store.mostRecent(store.projectHashFor("/empty"))).toBeNull()
+  })
 })

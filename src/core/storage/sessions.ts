@@ -117,6 +117,11 @@ export class SessionStore {
     }))
   }
 
+  /** The most recently updated session for a project, or null if none. */
+  mostRecent(projectHashValue: string): SessionRow | null {
+    return this.listSessions(projectHashValue)[0] ?? null
+  }
+
   /** Test/recovery helper: delete an index row (transcript stays on disk). */
   dropIndexRow(sessionId: string): void {
     this.db.query("DELETE FROM session WHERE id = ?").run(sessionId)
