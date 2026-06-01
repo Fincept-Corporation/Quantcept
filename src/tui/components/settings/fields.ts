@@ -35,6 +35,20 @@ export function configSections(): ConfigSection[] {
       fields: [{ label: "Fincept base URL", kind: "string", path: "fincept.baseUrl", get: () => c.fincept.baseUrl }],
     },
     {
+      key: "chat",
+      label: "Chat",
+      fields: [
+        {
+          label: "Storage",
+          kind: "enum",
+          path: "chat.mode",
+          choices: ["cloud", "local"],
+          get: () => c.chat.mode,
+          hint: "cloud = Fincept backend (server-side) · local = on this machine",
+        },
+      ],
+    },
+    {
       key: "model",
       label: "Model",
       fields: [

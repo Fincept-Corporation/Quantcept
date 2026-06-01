@@ -109,8 +109,17 @@ export const ConfigSchema = z.object({
       email: z.string().optional(),
       username: z.string().optional(),
       lastValidatedAt: z.string().optional(),
+      // "Connected to the network by default" — seed downloaded learnings in the
+      // background to contribute to the P2P swarm. Set false to opt out.
+      seedByDefault: z.boolean().default(true),
     })
-    .default({ baseUrl: "http://localhost:8000" }),
+    .default({ baseUrl: "http://localhost:8000", seedByDefault: true }),
+  /**
+   * Chat engine. "cloud" (default) routes chat through the Fincept backend chat plane
+   * (server-side generation + persistence + credits). "local" uses the on-device agent
+   * loop + the local session store. Switch in Settings.
+   */
+  chat: z.object({ mode: z.enum(["cloud", "local"]).default("cloud") }).default({ mode: "cloud" }),
 })
 
 export type Config = z.infer<typeof ConfigSchema>
@@ -137,5 +146,6 @@ export const defaultConfig: Config = {
   risk: { startingCash: 100_000 },
   broker: { kind: "paper", slippageBps: 5 },
   trading: { enabled: false },
-  fincept: { baseUrl: "http://localhost:8000" },
+  fincept: { baseUrl: "http://localhost:8000", seedByDefault: true },
+  chat: { mode: "cloud" },
 }

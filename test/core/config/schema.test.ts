@@ -190,6 +190,31 @@ describe("ConfigSchema trading", () => {
   })
 })
 
+describe("ConfigSchema chat", () => {
+  test("defaults chat.mode to cloud", () => {
+    const c = ConfigSchema.parse({ provider: { id: "anthropic-messages", model: "m", baseUrl: "https://x" } })
+    expect(c.chat.mode).toBe("cloud")
+  })
+  test("parses chat.mode local", () => {
+    const c = ConfigSchema.parse({
+      provider: { id: "anthropic-messages", model: "m", baseUrl: "https://x" },
+      chat: { mode: "local" },
+    })
+    expect(c.chat.mode).toBe("local")
+  })
+  test("rejects an unknown chat.mode", () => {
+    expect(() =>
+      ConfigSchema.parse({
+        provider: { id: "anthropic-messages", model: "m", baseUrl: "https://x" },
+        chat: { mode: "bogus" },
+      }),
+    ).toThrow()
+  })
+  test("defaultConfig includes chat cloud", () => {
+    expect(defaultConfig.chat).toEqual({ mode: "cloud" })
+  })
+})
+
 describe("ConfigSchema visionProvider", () => {
   test("is optional and absent by default", () => {
     const c = ConfigSchema.parse({ provider: { id: "anthropic-messages", model: "m", baseUrl: "https://x" } })
