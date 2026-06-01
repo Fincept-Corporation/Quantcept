@@ -1,33 +1,43 @@
-import type { SessionRow, TranscriptRecord } from "@core/storage"
+import type { TranscriptRecord } from "@core/storage"
 import { useRenderer } from "@opentui/solid"
-import { formatRelativeTime } from "@shared/time"
 import { useStorage } from "@tui/context/storage"
 import { useTheme } from "@tui/context/theme"
 import { ModalFrame, ModalList, useListNav, useModalKeyboard, useNotice } from "@tui/ui/modal"
-import { createMemo, createSignal, Show } from "solid-js"
+import { createMemo, createSignal, onMount, Show } from "solid-js"
 import { filterSessions } from "./filter"
+import { chatStoresCloud, cloudSummaries, localSummaries, type SessionSummary } from "./history"
 
 /**
- * Browse and resume a past chat in this project. Built on the shared modal layer.
- * Type to filter by title; → previews the highlighted session; Enter resumes.
+ * Browse and resume a past chat. Lists cloud conversations when storage is cloud,
+ * else local sessions. Type to filter; Enter resumes; → previews (local only).
  */
 export function ResumeModal(props: { onClose: () => void; onResume: (id: string) => void; currentSessionId?: string }) {
   const { theme } = useTheme()
   const renderer = useRenderer()
   const storage = useStorage()
   const notice = useNotice()
-  const ph = storage.projectHashFor(process.cwd())
+  const cloud = chatStoresCloud()
 
+  const [all, setAll] = createSignal<SessionSummary[]>([])
   const [query, setQuery] = createSignal("")
   const [view, setView] = createSignal<"list" | "preview">("list")
 
-  const items = createMemo<SessionRow[]>(() =>
-    filterSessions(storage.listSessions(ph), query(), props.currentSessionId),
-  )
-  const titleOf = (s: SessionRow) => s.title?.trim() || "(untitled)"
+  // Cloud history loads async; local is a synchronous store read.
+  onMount(() => {
+    if (cloud) {
+      void cloudSummaries(props.currentSessionId).then((s) => {
+        setAll(s)
+        renderer.requestRender()
+      })
+    } else {
+      setAll(localSummaries(storage.listSessions(storage.projectHashFor(process.cwd())), props.currentSessionId))
+    }
+  })
+
+  const items = createMemo<SessionSummary[]>(() => filterSessions(all(), query()))
   const trunc = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s)
 
-  const nav = useListNav<SessionRow>({
+  const nav = useListNav<SessionSummary>({
     items,
     onSelect: (s) => {
       props.onResume(s.id)
@@ -41,8 +51,8 @@ export function ResumeModal(props: { onClose: () => void; onResume: (id: string)
         }
         return true // preview swallows every key
       }
-      // list view
-      if (e.name === "right") {
+      // → opens a preview (local sessions only — cloud preview would need a fetch).
+      if (e.name === "right" && !cloud) {
         if (sel) {
           setView("preview")
           renderer.requestRender()
@@ -85,11 +95,11 @@ export function ResumeModal(props: { onClose: () => void; onResume: (id: string)
   })
   useModalKeyboard({ nav })
 
-  // Read the transcript only while previewing (not on every scroll).
+  // Read the transcript only while previewing a LOCAL session (not on every scroll).
   const preview = createMemo(() => {
     if (view() !== "preview") return { first: "", last: "" }
     const sel = items()[nav.cursor()]
-    if (!sel) return { first: "", last: "" }
+    if (!sel || sel.cloud) return { first: "", last: "" }
     const msgs = storage.loadSession(sel.id).filter((r): r is Extract<TranscriptRecord, { t: "msg" }> => r.t === "msg")
     return {
       first: msgs.find((m) => m.role === "user")?.content ?? "",
@@ -97,17 +107,20 @@ export function ResumeModal(props: { onClose: () => void; onResume: (id: string)
     }
   })
 
+  const footer = () =>
+    view() === "preview"
+      ? "←/Esc back"
+      : cloud
+        ? "↑/↓ move · Enter resume · type to search · Esc close"
+        : "↑/↓ move · → preview · Enter resume · type to search · Esc close"
+
   return (
-    <ModalFrame
-      title="↻ Resume a session"
-      footer={view() === "list" ? "↑/↓ move · → preview · Enter resume · type to search · Esc close" : "←/Esc back"}
-      notice={notice.notice()}
-    >
+    <ModalFrame title={cloud ? "☁ Resume a chat" : "↻ Resume a session"} footer={footer()} notice={notice.notice()}>
       <Show
         when={view() === "list"}
         fallback={
           <box flexDirection="column">
-            <text fg={theme.accent}>{titleOf(items()[nav.cursor()] ?? ({ title: "" } as SessionRow))}</text>
+            <text fg={theme.accent}>{items()[nav.cursor()]?.title ?? ""}</text>
             <box height={1} minHeight={0} />
             <text fg={theme.textMuted}>You:</text>
             <text fg={theme.text}>{trunc(preview().first, 240) || "(no messages)"}</text>
@@ -121,7 +134,11 @@ export function ResumeModal(props: { onClose: () => void; onResume: (id: string)
           when={items().length > 0}
           fallback={
             <text fg={theme.textMuted}>
-              {query() ? `No sessions match "${query()}".` : "No previous sessions in this project."}
+              {query()
+                ? `No chats match "${query()}".`
+                : cloud
+                  ? "No cloud chats yet."
+                  : "No previous sessions in this project."}
             </text>
           }
         >
@@ -129,11 +146,7 @@ export function ResumeModal(props: { onClose: () => void; onResume: (id: string)
             <Show when={query()}>
               <text fg={theme.textMuted}>search: {query()}</text>
             </Show>
-            <ModalList
-              window={nav.window()}
-              label={(s) => trunc(titleOf(s), 48)}
-              right={(s) => `${formatRelativeTime(s.updatedAt)} · ${s.msgCount} msgs`}
-            />
+            <ModalList window={nav.window()} label={(s) => trunc(s.title, 48)} right={(s) => s.sub} />
           </box>
         </Show>
       </Show>

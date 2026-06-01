@@ -9,6 +9,12 @@ export type SessionRoute = {
   type: "session"
   sessionID: string
   initialMessage?: string
+  /** Agent persona selected on the home screen, carried into this fresh session. */
+  initialAgent?: string
+  /** Skill to run on mount — set when /skills launches a skill from the home screen. */
+  initialSkill?: string
+  /** Resume a cloud conversation: binds this session to a `cnv_` id and hydrates it. */
+  cloudConvId?: string
 }
 
 export type Route = HomeRoute | SessionRoute

@@ -4,6 +4,7 @@ import { McpModal } from "@tui/components/mcp/McpModal"
 import { MemoryModal } from "@tui/components/memory/MemoryModal"
 import { PositionsModal } from "@tui/components/positions/PositionsModal"
 import { ResumeModal } from "@tui/components/sessions/ResumeModal"
+import { chatStoresCloud } from "@tui/components/sessions/history"
 import { batch, createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 
@@ -396,6 +397,12 @@ export function Session() {
   }
 
   onMount(() => {
+    // Resuming a cloud conversation: bind it and hydrate its messages into the display.
+    const cloudConv = (sessionData() as SessionRoute).cloudConvId
+    if (cloudConv) {
+      cloudConvId = cloudConv
+      void hydrateCloudConversation(cloudConv)
+    }
     const id = sessionData().sessionID
     const cwd = process.cwd()
     const existing = storeCloud() ? [] : storage.loadSession(id)
@@ -546,6 +553,34 @@ export function Session() {
       })
     }
     renderer.requestRender()
+  }
+
+  // Resume a cloud conversation: load its persisted messages into the display.
+  async function hydrateCloudConversation(id: string) {
+    const chat = makeChat()
+    if (!chat) return
+    try {
+      const r = await chat.getConversation(id)
+      setMessages(
+        produce((msgs) => {
+          for (const m of r.data.messages) {
+            const text = m.parts
+              .filter((p) => p.type === "text")
+              .map((p) => p.text ?? "")
+              .join("")
+            msgs.push({
+              id: `msg-${msgs.length}-${m.id}`,
+              role: m.role,
+              content: text,
+              timestamp: Date.parse(m.created_at) || Date.now(),
+            })
+          }
+        }),
+      )
+      renderer.requestRender()
+    } catch {
+      // best-effort hydrate
+    }
   }
 
   // Local generation + cloud storage: push the latest finished turn (user +
@@ -880,11 +915,19 @@ export function Session() {
     run(_args, ctx) {
       ctx.showDialog(() => (
         <ResumeModal
-          currentSessionId={sessionData().sessionID}
+          currentSessionId={chatStoresCloud() ? (cloudConvId ?? undefined) : sessionData().sessionID}
           onClose={ctx.closeDialog}
           onResume={(id) => {
-            ctx.navigate({ type: "session", sessionID: id })
             ctx.closeDialog()
+            if (chatStoresCloud()) {
+              route.navigate({
+                type: "session",
+                sessionID: `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                cloudConvId: id,
+              })
+            } else {
+              route.navigate({ type: "session", sessionID: id })
+            }
           }}
         />
       ))

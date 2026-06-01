@@ -1,6 +1,6 @@
 import type { LearningsNetworkStats } from "@core/fincept"
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
-import { formatRelativeTime } from "@shared/time"
+import { chatStoresCloud, cloudSummaries, localSummaries, type SessionSummary } from "@tui/components/sessions/history"
 import { BuddySprite } from "@tui/buddy/BuddySprite"
 import { AgentPicker } from "@tui/components/AgentPicker"
 import { Logo } from "@tui/components/logo"
@@ -78,8 +78,9 @@ export function Home() {
 
   const storage = useStorage()
   const args = useArgs()
-  // Read once per home mount; Home remounts each time it's shown, so this stays fresh.
-  const recent = createMemo(() => storage.listSessions(storage.projectHashFor(process.cwd())).slice(0, 5))
+  // Recent chats for the inline list — cloud conversations or local sessions.
+  // Loaded on mount (Home remounts each time it's shown, so it stays fresh).
+  const [recent, setRecent] = createSignal<SessionSummary[]>([])
 
   function openResume() {
     if (dialog.active()) return
@@ -88,7 +89,15 @@ export function Home() {
         onClose={() => dialog.clear()}
         onResume={(id) => {
           dialog.clear()
-          route.navigate({ type: "session", sessionID: id })
+          if (chatStoresCloud()) {
+            route.navigate({
+              type: "session",
+              sessionID: `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              cloudConvId: id,
+            })
+          } else {
+            route.navigate({ type: "session", sessionID: id })
+          }
         }}
       />
     ))
@@ -149,6 +158,11 @@ export function Home() {
   let timer: ReturnType<typeof setInterval>
   onMount(() => {
     if (args.resume === true) openResume()
+    if (chatStoresCloud()) {
+      void cloudSummaries().then((s) => setRecent(s.slice(0, 5)))
+    } else {
+      setRecent(localSummaries(storage.listSessions(storage.projectHashFor(process.cwd()))).slice(0, 5))
+    }
     void loadStats()
     timer = setInterval(() => {
       setTick((t) => {
@@ -224,10 +238,8 @@ export function Home() {
             <For each={recent()}>
               {(s) => (
                 <box flexDirection="row" justifyContent="space-between" gap={2}>
-                  <text fg={theme.text}>{(s.title?.trim() || "(untitled)").slice(0, 48)}</text>
-                  <text fg={theme.textMuted}>
-                    {formatRelativeTime(s.updatedAt)} · {s.msgCount} msgs
-                  </text>
+                  <text fg={theme.text}>{s.title.slice(0, 48)}</text>
+                  <text fg={theme.textMuted}>{s.sub}</text>
                 </box>
               )}
             </For>
