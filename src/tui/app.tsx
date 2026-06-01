@@ -9,16 +9,18 @@ import { authCommands } from "@tui/components/auth/auth.commands"
 import { cloudCommands } from "@tui/components/cloud/cloud.commands"
 import { CommandPalette } from "@tui/components/command-palette"
 import { learningsCommands } from "@tui/components/learnings/learnings.commands"
+import { pluginCommands } from "@tui/components/plugins/plugin.commands"
 import { settingsCommands } from "@tui/components/settings/settings.commands"
+import { skillsCommands } from "@tui/components/skills/skills.commands"
 import { AgentsProvider } from "@tui/context/agents"
 import { type Args, ArgsProvider } from "@tui/context/args"
 import { AuthProvider, useAuth } from "@tui/context/auth"
 import { CommandProvider, useCommands } from "@tui/context/command"
 import { createExit, type Exit, ExitProvider, useExit } from "@tui/context/exit"
 import { KVProvider } from "@tui/context/kv"
-import { PluginsProvider } from "@tui/context/plugins"
-import { RouteProvider, useRoute } from "@tui/context/route"
-import { SkillsProvider } from "@tui/context/skills"
+import { PluginsProvider, usePlugins } from "@tui/context/plugins"
+import { RouteProvider, type SessionRoute, useRoute } from "@tui/context/route"
+import { SkillsProvider, useSkills } from "@tui/context/skills"
 import { SnapshotProvider } from "@tui/context/snapshot"
 import { StorageProvider } from "@tui/context/storage"
 import { ThemeProvider, useTheme } from "@tui/context/theme"
@@ -29,7 +31,7 @@ import { Home } from "@tui/routes/home"
 import { Session } from "@tui/routes/session"
 import { DialogProvider } from "@tui/ui/dialog"
 import { ToastProvider } from "@tui/ui/toast"
-import { ErrorBoundary, Match, onCleanup, Switch } from "solid-js"
+import { ErrorBoundary, Match, onCleanup, Show, Switch } from "solid-js"
 
 export function rendererConfig(): CliRendererConfig {
   return {
@@ -173,18 +175,25 @@ function App() {
 
   const buddy = useBuddy()
   const commands = useCommands()
+  const plugins = usePlugins()
+  const skills = useSkills()
   const unregister = [
     ...buddyCommands(buddy),
     ...authCommands(auth),
     ...settingsCommands(auth),
     ...cloudCommands(auth),
     ...learningsCommands(auth),
+    ...pluginCommands(plugins),
+    ...skillsCommands({ skills: () => skills.all(), route }),
   ].map((c) => commands.register(c))
   onCleanup(() => {
     for (const u of unregister) u()
   })
 
   renderer.setTerminalTitle("Quantcept")
+  // Note: the renderer's backbuffer clear color is set to the theme background in
+  // ThemeProvider (context/theme.tsx) — it already covers every grid cell, so there's
+  // no need to set it again here.
 
   useKeyboard((e: any) => {
     if (e.ctrl && e.name === "c") {
@@ -218,7 +227,9 @@ function App() {
                 <Home />
               </Match>
               <Match when={route.data.type === "session"}>
-                <Session />
+                <Show when={(route.data as SessionRoute).sessionID} keyed>
+                  {(_sessionID) => <Session />}
+                </Show>
               </Match>
             </Switch>
           </Match>
