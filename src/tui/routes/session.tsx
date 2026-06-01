@@ -1,8 +1,9 @@
 import { createTextAttributes, RGBA, type SyntaxStyle } from "@opentui/core"
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
+import { McpModal } from "@tui/components/mcp/McpModal"
 import { MemoryModal } from "@tui/components/memory/MemoryModal"
-import { PluginsModal } from "@tui/components/plugins/PluginsModal"
 import { PositionsModal } from "@tui/components/positions/PositionsModal"
+import { ResumeModal } from "@tui/components/sessions/ResumeModal"
 import { batch, createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 
@@ -11,6 +12,7 @@ const BOLD = createTextAttributes({ bold: true })
 import { appendFileSync, mkdirSync } from "node:fs"
 import nodePath from "node:path"
 import type { LoadedAgent } from "@core/agent/agent-manifest"
+import { composeSystemPrompt } from "@core/agent/compose-system"
 import type { AgentEvent } from "@core/agent/events"
 import { runAgentTurn } from "@core/agent/loop"
 import { registerBuiltinTools } from "@core/agent/registry"
@@ -24,9 +26,7 @@ import { JobStore } from "@core/jobs"
 import { createListJobsTool, createScheduleJobTool } from "@core/jobs/JobControlTool"
 import { stripStrayCJK } from "@core/llm/normalize"
 import { createProvider } from "@core/llm/provider"
-import { McpServerSchema } from "@core/mcp/config"
 import { McpManager } from "@core/mcp/manager"
-import { removeServerFromSettings, writeServerToSettings } from "@core/mcp/persist"
 import { memorySystemBlock, readIndex, remember } from "@core/memory"
 import type { PermissionDecision } from "@core/permissions/schema"
 import { filterRegistry } from "@core/skills"
@@ -45,6 +45,7 @@ import type { Tool } from "@core/tools/Tool"
 import type { ActionCommand } from "@ext/commands/types"
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { useBuddy } from "@tui/buddy/BuddyContext"
+import { AgentPicker } from "@tui/components/AgentPicker"
 import { DiagramBlock } from "@tui/components/DiagramBlock"
 import { Prompt } from "@tui/components/prompt"
 import { ToolMessage } from "@tui/components/tool-message"
@@ -64,6 +65,7 @@ import { splitDiagramSegments } from "@tui/markdown/segments"
 import { markdownToPlainText } from "@tui/markdown/toPlainText"
 import { copyToClipboard } from "@tui/platform/clipboard"
 import { buildSyntaxStyle } from "@tui/themes/syntax-style"
+import { TIPS } from "@tui/tips"
 import { useDialog } from "@tui/ui/dialog"
 import { DialogConfirm } from "@tui/ui/dialog-confirm"
 import { useToast } from "@tui/ui/toast"
@@ -162,7 +164,9 @@ export function Session() {
   const [activeAgent, setActiveAgent] = createSignal<LoadedAgent | undefined>(undefined)
   const config = loadConfig()
   const activeProvider = () => {
-    const model = activeAgent()?.model ?? config.provider.model
+    // `||` (not `??`) so an empty-string model from any agent source also inherits the
+    // configured model — an empty model would otherwise break the provider call.
+    const model = activeAgent()?.model || config.provider.model
     return createProvider({ ...config.provider, model })
   }
   const registry = new ToolRegistry()
@@ -303,6 +307,26 @@ export function Session() {
   const exit = useExit()
   const dimensions = useTerminalDimensions()
   const sessionData = () => route.data as SessionRoute
+  // A persona chosen on the home screen arrives as `initialAgent`. Apply it as soon as
+  // the registry has it. Usually that's synchronous on the first run (home already
+  // resolved the resource), so it lands before the onMount that fires the first turn;
+  // but if discovery is still in flight, this effect re-runs and self-heals when it
+  // resolves. One-shot guard so it only applies the initial choice, never fighting a
+  // later user switch via the picker.
+  {
+    const initialAgentName = sessionData().initialAgent
+    if (initialAgentName) {
+      let applied = false
+      createEffect(() => {
+        if (applied) return
+        const a = agents.get(initialAgentName)
+        if (a) {
+          setActiveAgent(a)
+          applied = true
+        }
+      })
+    }
+  }
   const [messages, setMessages] = createStore<Message[]>([])
   const [sidebarMode, setSidebarMode] = createSignal<"auto" | "show" | "hide">("auto")
   const [sidebarOpen, setSidebarOpen] = createSignal(false)
@@ -382,6 +406,9 @@ export function Session() {
     }
     const initial = sessionData().initialMessage
     if (initial) handleSubmit(initial)
+    // A skill launched from the home screen arrives as `initialSkill`: run it now.
+    const initialSkillName = sessionData().initialSkill
+    if (initialSkillName) runSkill(initialSkillName, "")
   })
 
   const renderer = useRenderer()
@@ -413,8 +440,15 @@ export function Session() {
   // Auto-accept: when ON, every tool permission prompt is granted without a dialog. Toggled
   // with shift+tab (plain tab is the slash-popover key, so it must be the shifted chord).
   const [autoApprove, setAutoApprove] = createSignal(false)
+  let turnAbortController: AbortController | null = null
   useKeyboard((e: { name?: string; shift?: boolean }) => {
+    if (e.name === "escape" && loading() && !dialog.active()) {
+      turnAbortController?.abort()
+      return
+    }
     if (!isAutoApproveToggle(e)) return
+    // An open modal (e.g. the agent picker) owns the keyboard — don't toggle underneath it.
+    if (dialog.active()) return
     const next = !autoApprove()
     setAutoApprove(next)
     toast.show({
@@ -437,18 +471,14 @@ export function Session() {
     )
   }
 
-  const baseSystem = () => {
-    const agent = activeAgent()
-    if (agent) return agent.systemPrompt
-    const parts = [SYSTEM_PROMPT]
-    const mem = memorySystemBlock(readIndex("global"), readIndex("project", projectHash(process.cwd())))
-    if (mem) parts.push(mem)
-    const skillBlock = skills.systemBlock()
-    if (skillBlock) parts.push(skillBlock)
-    const pctx = pluginContext()
-    if (pctx) parts.push(pctx)
-    return parts.join("\n\n")
-  }
+  const baseSystem = () =>
+    composeSystemPrompt({
+      base: SYSTEM_PROMPT,
+      memory: memorySystemBlock(readIndex("global"), readIndex("project", projectHash(process.cwd()))),
+      skills: skills.systemBlock(),
+      plugins: pluginContext(),
+      agent: activeAgent(),
+    })
 
   function onAgentEvent(e: AgentEvent) {
     if (e.type === "text") {
@@ -508,12 +538,13 @@ export function Session() {
       .filter((m) => m.role !== "tool" && m.content.length > 0)
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
+    turnAbortController = new AbortController()
     try {
       const result = await runAgentTurn(
         {
           provider: activeProvider(),
           visionProvider: computerUse?.visionProvider,
-          maxIterations: computerUse ? 50 : undefined,
+          maxIterations: 12,
           registry: opts.toolRegistry,
           messages: history,
           system: opts.system,
@@ -522,6 +553,7 @@ export function Session() {
           hooks: hookRunner,
           cwd: process.cwd(),
           ask: askViaDialog,
+          abort: turnAbortController.signal,
           snapshot: {
             track: async (label: string) => snapshot.trackRaw(label),
             revertTo: async (treeHash: string) => snapshot.revertTo(treeHash),
@@ -558,22 +590,27 @@ export function Session() {
     } catch (error) {
       // Drop any buffered partial text so it can't append after the error line.
       textCoalescer.dispose()
-      const errMsg = error instanceof Error ? error.message : String(error)
-      setMessages(
-        produce((msgs) => {
-          const last = msgs[msgs.length - 1]
-          if (!last || last.role !== "assistant") {
-            msgs.push({
-              id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-              role: "assistant",
-              content: "",
-              timestamp: Date.now(),
-            })
-          }
-        }),
-      )
-      updateLastAssistantMessage(`Error: ${errMsg}`)
-      buddy.react("error")
+      // Escape-abort is a clean stop — just flush whatever partial response we have.
+      if (turnAbortController?.signal.aborted) {
+        buddy.react("success")
+      } else {
+        const errMsg = error instanceof Error ? error.message : String(error)
+        setMessages(
+          produce((msgs) => {
+            const last = msgs[msgs.length - 1]
+            if (!last || last.role !== "assistant") {
+              msgs.push({
+                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                role: "assistant",
+                content: "",
+                timestamp: Date.now(),
+              })
+            }
+          }),
+        )
+        updateLastAssistantMessage(`Error: ${errMsg}`)
+        buddy.react("error")
+      }
     } finally {
       setLoading(false)
       renderer.requestRender()
@@ -624,6 +661,13 @@ export function Session() {
   }
 
   async function handleSubmit(text: string) {
+    // Guard against a second turn starting mid-stream (e.g. a prompt-submitting slash
+    // command dispatched while the current turn is generating) — two concurrent runTurns
+    // would interleave writes to the same message store.
+    if (loading()) {
+      toast.show({ message: "Still generating — wait for the current turn to finish.", variant: "warning" })
+      return
+    }
     addMessage("user", text)
     setLoading(true)
     buddy.react("thinking")
@@ -646,6 +690,10 @@ export function Session() {
   function runSkill(skillName: string, args: string) {
     const skill = skills.get(skillName)
     if (!skill) return
+    if (loading()) {
+      toast.show({ message: "Still generating — wait for the current turn to finish.", variant: "warning" })
+      return
+    }
     addMessage("user", args || `(run skill: ${skillName})`)
     setLoading(true)
     buddy.react("thinking")
@@ -666,15 +714,20 @@ export function Session() {
   }
   commands.setHostHooks(hostHooks)
 
-  // Tab in the prompt cycles the active agent (default → each agent → default),
-  // reusing the /agent command so the switch + toast stay in one place.
-  function cycleAgent() {
-    const names = agents.all().map((a) => a.name)
-    if (names.length === 0) return
-    const order = ["off", ...names]
-    const current = activeAgent()?.name ?? "off"
-    const next = order[(order.indexOf(current) + 1) % order.length] ?? "off"
-    commands.dispatch("session.agent", next, "keybind")
+  // Tab in the prompt opens the agent picker; selecting reuses the /agent command
+  // so the switch + toast + model/prompt swap stay in one place.
+  function openAgentPicker() {
+    if (dialog.active()) return
+    agents.refresh()
+    dialog.replace(() => (
+      <AgentPicker
+        agents={() => agents.all()}
+        current={activeAgent()?.name}
+        onSelect={(name) => commands.dispatch("session.agent", name ?? "off", "keybind")}
+        onClose={() => dialog.clear()}
+      />
+    ))
+    renderer.requestRender()
   }
   const clearCmd: ActionCommand = {
     kind: "action",
@@ -693,22 +746,20 @@ export function Session() {
     kind: "action",
     id: "session.resume",
     name: "resume",
-    description: "List and resume a previous session in this project",
+    description: "Browse and resume a previous session in this project",
     category: "Session",
     source: "builtin",
     run(_args, ctx) {
-      const ph = storage.projectHashFor(process.cwd())
-      const sessions = storage.listSessions(ph).filter((s) => s.id !== sessionData().sessionID)
-      if (sessions.length === 0) {
-        ctx.toast("No previous sessions in this project.")
-        return
-      }
-      const lines = sessions
-        .slice(0, 10)
-        .map((s, i) => `${i + 1}. ${s.title ?? "(untitled)"} — ${s.msgCount} msgs`)
-        .join("\n")
-      ctx.toast(`Recent sessions:\n${lines}\n\nResuming the latest…`)
-      route.navigate({ type: "session", sessionID: sessions[0]!.id })
+      ctx.showDialog(() => (
+        <ResumeModal
+          currentSessionId={sessionData().sessionID}
+          onClose={ctx.closeDialog}
+          onResume={(id) => {
+            ctx.navigate({ type: "session", sessionID: id })
+            ctx.closeDialog()
+          }}
+        />
+      ))
     },
   }
   const unregisterResume = commands.register(resumeCmd)
@@ -851,176 +902,16 @@ export function Session() {
     kind: "action",
     id: "session.mcp",
     name: "mcp",
-    description: "Manage MCP servers (list | status | add … | remove <server> | auth <server> | logout <server>)",
+    description: "Browse & manage MCP servers (add, remove, auth, logout)",
     category: "MCP",
     source: "builtin",
-    argumentHint: "[list | status | add … | remove <server> | auth <server> | logout <server>]",
-    argChoices: ["status", "list", "auth", "logout", "add", "remove"],
-    async run(args, ctx) {
-      const [sub, ...rest] = args.trim().split(/\s+/).filter(Boolean)
-      const target = rest.join(" ")
-      if (!sub || sub === "status" || sub === "list") {
-        const rows = mcp.status()
-        if (rows.length === 0) {
-          ctx.toast("No MCP servers configured. Add them under mcp.servers in settings.json.")
-          return
-        }
-        const lines = rows
-          .map((r) => {
-            const transport = r.type === "http" ? `http/${r.transport}` : "stdio"
-            const tools = r.toolCount ? ` · ${r.toolCount} tool(s)` : ""
-            return `- ${r.name} [${transport}] ${r.state}${tools}`
-          })
-          .join("\n")
-        ctx.toast(`MCP servers:\n${lines}`)
-        return
-      }
-      if (sub === "auth") {
-        if (!target) {
-          ctx.toast("Usage: /mcp auth <server>")
-          return
-        }
-        ctx.toast(`Authorizing "${target}" — a browser window will open…`)
-        ctx.toast((await mcp.authenticate(target)).message)
-        return
-      }
-      if (sub === "logout") {
-        if (!target) {
-          ctx.toast("Usage: /mcp logout <server>")
-          return
-        }
-        ctx.toast((await mcp.logout(target)).message)
-        return
-      }
-      if (sub === "add") {
-        const [addName, second, ...tail] = rest
-        if (!addName || !second) {
-          ctx.toast("Usage: /mcp add <name> <command> [args…]  |  /mcp add <name> --http <url>")
-          return
-        }
-        const raw =
-          second === "--http" ? { type: "http", url: tail[0] } : { type: "stdio", command: second, args: tail }
-        const parsed = McpServerSchema.safeParse(raw)
-        if (!parsed.success) {
-          ctx.toast(`Invalid MCP server spec: ${parsed.error.message}`)
-          return
-        }
-        const result = await mcp.addServer(addName, parsed.data)
-        if (result.ok) writeServerToSettings(addName, parsed.data, process.cwd())
-        ctx.toast(result.message)
-        return
-      }
-      if (sub === "remove") {
-        if (!target) {
-          ctx.toast("Usage: /mcp remove <server>")
-          return
-        }
-        const result = await mcp.removeServer(target)
-        if (result.ok) removeServerFromSettings(target, process.cwd())
-        ctx.toast(result.message)
-        return
-      }
-      ctx.toast(
-        `Unknown /mcp subcommand: ${sub}. Try: status | auth <server> | logout <server> | add … | remove <server>`,
-      )
-    },
+    run: (_args, ctx) => ctx.showDialog(() => <McpModal mcp={mcp} cwd={process.cwd()} onClose={ctx.closeDialog} />),
   }
   const unregisterMcp = commands.register(mcpCmd)
-  const pluginCmd: ActionCommand = {
-    kind: "action",
-    id: "session.plugin",
-    name: "plugin",
-    description: "Manage plugins (list | install <spec> | enable/disable <name> | marketplace …)",
-    category: "Plugins",
-    source: "builtin",
-    argumentHint: "[list | install <name@market|source> | enable <name> | disable <name> | marketplace add <source>]",
-    argChoices: ["list", "install", "enable", "disable", "uninstall", "marketplace"],
-    async run(args, ctx) {
-      const parts = args.trim().split(/\s+/).filter(Boolean)
-      const sub = parts[0]
-      const mgr = plugins.manager
-      try {
-        if (!sub || sub === "list") {
-          const installed = mgr.listInstalled()
-          ctx.toast(
-            installed.length
-              ? `Plugins:\n${installed.map((p) => `- ${p.name}${p.enabled ? "" : " (disabled)"}${p.marketplace ? ` @${p.marketplace}` : ""}`).join("\n")}`
-              : "No plugins installed. Try /plugin install <name@marketplace>.",
-          )
-          return
-        }
-        if (sub === "marketplace") {
-          const [msub, ...rest] = parts.slice(1)
-          if (msub === "add" && rest.length) {
-            const mp = await mgr.addMarketplace(rest.join(" "))
-            ctx.toast(`Added marketplace "${mp.name}" (${mp.plugins.length} plugin(s)).`)
-            return
-          }
-          if (msub === "remove" && rest[0]) {
-            mgr.removeMarketplace(rest[0])
-            ctx.toast(`Removed marketplace ${rest[0]}.`)
-            return
-          }
-          const ms = mgr.listMarketplaces()
-          ctx.toast(
-            ms.length
-              ? `Marketplaces:\n${ms.map((m) => `- ${m.name}`).join("\n")}`
-              : "No marketplaces. Try /plugin marketplace add <source>.",
-          )
-          return
-        }
-        if (sub === "install" && parts[1]) {
-          ctx.toast(`Installing ${parts[1]}…`)
-          const p = await mgr.install(parts.slice(1).join(" "))
-          plugins.reload()
-          ctx.toast(`Installed "${p.name}". Skills/commands load now; MCP servers load on next session.`)
-          return
-        }
-        if (sub === "uninstall" && parts[1]) {
-          await mgr.uninstall(parts[1])
-          plugins.reload()
-          ctx.toast(`Uninstalled ${parts[1]}.`)
-          return
-        }
-        if (sub === "enable" && parts[1]) {
-          mgr.enable(parts[1])
-          plugins.reload()
-          ctx.toast(`Enabled ${parts[1]}.`)
-          return
-        }
-        if (sub === "disable" && parts[1]) {
-          mgr.disable(parts[1])
-          plugins.reload()
-          ctx.toast(`Disabled ${parts[1]}.`)
-          return
-        }
-        ctx.toast(`Unknown /plugin subcommand: ${sub}. Try: list | install | enable | disable | marketplace.`)
-      } catch (e) {
-        ctx.toast(`/plugin failed: ${e instanceof Error ? e.message : String(e)}`)
-      }
-    },
-  }
-  const unregisterPlugin = commands.register(pluginCmd)
-
-  // /plugins — rich modal: install/enable/disable, browse a marketplace's catalog, view active hooks.
-  const pluginsModalCmd: ActionCommand = {
-    kind: "action",
-    id: "session.plugins",
-    name: "plugins",
-    description: "Browse & manage plugins, marketplaces, and hooks",
-    category: "Plugins",
-    source: "builtin",
-    run: (_args, ctx) =>
-      ctx.showDialog(() => (
-        <PluginsModal
-          manager={plugins.manager}
-          reload={() => plugins.reload()}
-          contributions={plugins.contributions}
-          onClose={ctx.closeDialog}
-        />
-      )),
-  }
-  const unregisterPlugins = commands.register(pluginsModalCmd)
+  // /plugin, /marketplace, /plugins and /skills are registered globally in app.tsx
+  // (App level) so they're available on the home screen as well as in a session —
+  // see plugins/plugin.commands.tsx and skills/skills.commands.tsx. Running a skill
+  // still flows through this route's runSkill hook (or initialSkill on a fresh session).
   // Re-register /agent reactively so its argChoices reflect discovered agent
   // names once the (async) registry resolves — same pattern as the skill commands.
   let unregisterAgent: (() => void) | undefined
@@ -1065,8 +956,6 @@ export function Session() {
     unregisterClear()
     unregisterCopy()
     unregisterMcp()
-    unregisterPlugin()
-    unregisterPlugins()
     unregisterResume()
     unregisterUndo()
     unregisterRedo()
@@ -1182,7 +1071,8 @@ export function Session() {
             messageCount={messages.length}
             tokenCount={totalTokens()}
             agent={activeAgent()?.name}
-            onAgentCycle={cycleAgent}
+            onOpenAgentPicker={openAgentPicker}
+            tips={[...TIPS]}
           />
         </box>
 
