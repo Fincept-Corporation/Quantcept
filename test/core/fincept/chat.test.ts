@@ -46,4 +46,17 @@ describe("FinceptChat request shaping", () => {
     await new FinceptChat(client, "t", "http://h").cancelGeneration("gen_9")
     expect(calls[0]).toMatchObject({ method: "POST", path: "/v1/chat/generations/gen_9/cancel" })
   })
+
+  test("importMessages POSTs the turn batch to /import", async () => {
+    const { client, calls } = stub()
+    await new FinceptChat(client, "t", "http://h").importMessages("cnv_1", [
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "yo" },
+    ])
+    expect(calls[0]).toMatchObject({
+      method: "POST",
+      path: "/v1/chat/conversations/cnv_1/import",
+      body: { messages: [{ role: "user", content: "hi" }, { role: "assistant", content: "yo" }] },
+    })
+  })
 })

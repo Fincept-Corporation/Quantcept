@@ -97,6 +97,28 @@ export class FinceptChat {
     return this.client.request({ method: "DELETE", path: `${BASE}/conversations/${id}`, token: this.token })
   }
 
+  /** Store-only: append already-generated turns (local generation + cloud storage).
+   *  No generation, no credits. Mirrors a finished turn to the cloud transcript. */
+  importMessages(
+    conversationId: string,
+    messages: { role: "user" | "assistant"; content: string; client_message_id?: string }[],
+    idempotencyKey?: string,
+  ): Promise<
+    FinceptResult<{
+      conversation_id: string
+      messages: { id: string; role: string; replayed: boolean }[]
+      count: number
+    }>
+  > {
+    return this.client.request({
+      method: "POST",
+      path: `${BASE}/conversations/${conversationId}/import`,
+      body: { messages },
+      token: this.token,
+      idempotencyKey,
+    })
+  }
+
   /** Send a user turn; server reserves credits and starts a generation. Throws
    *  InsufficientCreditsError on 402 and FinceptError("too_many_concurrent_generations") on 429. */
   send(conversationId: string, body: SendBody, idempotencyKey?: string): Promise<FinceptResult<SendResult>> {

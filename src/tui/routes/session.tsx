@@ -165,9 +165,11 @@ export function Session() {
   const hookRunner: HookRunner = { fire: (event) => runHooks(pluginHooks(), event) }
   const [activeAgent, setActiveAgent] = createSignal<LoadedAgent | undefined>(undefined)
   const config = loadConfig()
-  // Cloud chat: server-side generation via the Fincept chat plane. Local: the
-  // on-device agent loop + SessionStore. Switched by chat.mode (Settings).
-  const cloudMode = () => config.chat.mode === "cloud"
+  // Two axes (Settings): generation cloud→server-side, local→on-device loop.
+  // storage cloud→Fincept chat plane, local→SessionStore. Cloud generation always
+  // persists server-side, so storeCloud is implied by cloud generation.
+  const genCloud = () => config.chat.generation === "cloud"
+  const storeCloud = () => genCloud() || config.chat.storage === "cloud"
   // Cloud conversation bound to this session — created lazily on the first turn.
   let cloudConvId: string | null = null
   function makeChat(): FinceptChat | null {
@@ -384,8 +386,8 @@ export function Session() {
         })
       }),
     )
-    // Local mode persists to the on-device store; cloud mode persists server-side.
-    if (content.length > 0 && !cloudMode()) {
+    // Local storage persists on-device; cloud storage persists server-side (gen) or via mirror.
+    if (content.length > 0 && !storeCloud()) {
       const id = sessionData().sessionID
       storage.appendEvent(id, { t: "msg", role, content, ts })
       // Derive the session title from the first user message (write-once).
@@ -396,7 +398,7 @@ export function Session() {
   onMount(() => {
     const id = sessionData().sessionID
     const cwd = process.cwd()
-    const existing = cloudMode() ? [] : storage.loadSession(id)
+    const existing = storeCloud() ? [] : storage.loadSession(id)
     if (existing.length > 0) {
       // Resume: replay the transcript into the message store.
       setMessages(
@@ -413,7 +415,7 @@ export function Session() {
           }
         }),
       )
-    } else if (!cloudMode()) {
+    } else if (!storeCloud()) {
       // New session: write the meta line.
       storage.createSession({ id, cwd })
     }
@@ -546,6 +548,33 @@ export function Session() {
     renderer.requestRender()
   }
 
+  // Local generation + cloud storage: push the latest finished turn (user +
+  // assistant) to the Fincept chat plane via the store-only import endpoint.
+  // Best-effort — a cloud hiccup must not break the local conversation.
+  async function mirrorTurnToCloud() {
+    const chat = makeChat()
+    if (!chat) return
+    const real = messages.filter((m) => m.role !== "tool" && m.content.length > 0)
+    const lastUser = [...real].reverse().find((m) => m.role === "user")
+    const lastAssistant = [...real].reverse().find((m) => m.role === "assistant")
+    if (!lastUser) return
+    try {
+      if (!cloudConvId) {
+        const created = await chat.createConversation({ title: lastUser.content.slice(0, 60), source: "cli" })
+        cloudConvId = created.data.id
+      }
+      const batch: { role: "user" | "assistant"; content: string; client_message_id: string }[] = [
+        { role: "user", content: lastUser.content, client_message_id: crypto.randomUUID() },
+      ]
+      if (lastAssistant && lastAssistant.content.length > 0) {
+        batch.push({ role: "assistant", content: lastAssistant.content, client_message_id: crypto.randomUUID() })
+      }
+      await chat.importMessages(cloudConvId, batch, crypto.randomUUID())
+    } catch {
+      // best-effort mirror
+    }
+  }
+
   // Cloud chat turn: send the user message to the Fincept chat plane and stream
   // the server-generated reply (SSE) into the live assistant message. Mirrors
   // runTurn's streaming/error/abort behavior; persistence is server-side.
@@ -566,7 +595,13 @@ export function Session() {
       }
       const sent = await chat.send(
         cloudConvId,
-        { content: text, client_message_id: crypto.randomUUID(), mode: "deep", source: "cli", auto_approve: autoApprove() },
+        {
+          content: text,
+          client_message_id: crypto.randomUUID(),
+          mode: "deep",
+          source: "cli",
+          auto_approve: autoApprove(),
+        },
         crypto.randomUUID(),
       )
       genId = sent.data.generation_id
@@ -580,7 +615,10 @@ export function Session() {
           // per-tool approval in cloud mode is a follow-up.
           await chat.approveGeneration(genId, { approved: autoApprove() }).catch(() => {})
           if (!autoApprove()) {
-            toast.show({ message: `Tool "${ev.tool}" needs approval — enable auto-accept (shift+tab).`, variant: "warning" })
+            toast.show({
+              message: `Tool "${ev.tool}" needs approval — enable auto-accept (shift+tab).`,
+              variant: "warning",
+            })
           }
         } else if (ev.type === "finish") {
           const u = ev.usage
@@ -656,17 +694,22 @@ export function Session() {
       setTokensPrev((p) => p + result.totalTokens)
       setTokensLive(0)
       buddy.react("success")
-      const last = messages[messages.length - 1]
-      if (last && last.role === "assistant" && last.content.length > 0) {
-        storage.appendEvent(sessionData().sessionID, {
-          t: "msg",
-          role: "assistant",
-          content: last.content,
-          ts: Date.now(),
-        })
+      if (storeCloud()) {
+        // Local generation + cloud storage: mirror the finished turn to the cloud transcript.
+        void mirrorTurnToCloud()
+      } else {
+        const last = messages[messages.length - 1]
+        if (last && last.role === "assistant" && last.content.length > 0) {
+          storage.appendEvent(sessionData().sessionID, {
+            t: "msg",
+            role: "assistant",
+            content: last.content,
+            ts: Date.now(),
+          })
+        }
+        const realMsgCount = messages.filter((m) => m.role !== "tool" && m.content.length > 0).length
+        storage.touch(sessionData().sessionID, { msgCount: realMsgCount, tokens: totalTokens() })
       }
-      const realMsgCount = messages.filter((m) => m.role !== "tool" && m.content.length > 0).length
-      storage.touch(sessionData().sessionID, { msgCount: realMsgCount, tokens: totalTokens() })
     } catch (error) {
       // Drop any buffered partial text so it can't append after the error line.
       textCoalescer.dispose()
@@ -755,8 +798,8 @@ export function Session() {
     setTokensLive(0)
     addMessage("assistant", "")
     slideToNewest()
-    // Cloud mode: server-side generation; skip the local agent loop + plugin hooks.
-    if (cloudMode()) {
+    // Cloud generation: server-side; skip the local agent loop + plugin hooks.
+    if (genCloud()) {
       await runCloudTurn(text)
       return
     }

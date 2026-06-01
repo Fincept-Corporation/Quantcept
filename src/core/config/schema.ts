@@ -115,11 +115,18 @@ export const ConfigSchema = z.object({
     })
     .default({ baseUrl: "http://localhost:8000", seedByDefault: true }),
   /**
-   * Chat engine. "cloud" (default) routes chat through the Fincept backend chat plane
-   * (server-side generation + persistence + credits). "local" uses the on-device agent
-   * loop + the local session store. Switch in Settings.
+   * Chat engine — two independent axes:
+   *  - generation: "cloud" (Fincept server-side) | "local" (on-device agent loop)
+   *  - storage:    "cloud" (Fincept chat plane)  | "local" (on-device session store)
+   * Cloud generation always persists server-side, so `storage` only applies when
+   * generation is "local". Switch in Settings.
    */
-  chat: z.object({ mode: z.enum(["cloud", "local"]).default("cloud") }).default({ mode: "cloud" }),
+  chat: z
+    .object({
+      generation: z.enum(["cloud", "local"]).default("cloud"),
+      storage: z.enum(["cloud", "local"]).default("cloud"),
+    })
+    .default({ generation: "cloud", storage: "cloud" }),
 })
 
 export type Config = z.infer<typeof ConfigSchema>
@@ -147,5 +154,5 @@ export const defaultConfig: Config = {
   broker: { kind: "paper", slippageBps: 5 },
   trading: { enabled: false },
   fincept: { baseUrl: "http://localhost:8000", seedByDefault: true },
-  chat: { mode: "cloud" },
+  chat: { generation: "cloud", storage: "cloud" },
 }

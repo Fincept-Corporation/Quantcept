@@ -191,27 +191,27 @@ describe("ConfigSchema trading", () => {
 })
 
 describe("ConfigSchema chat", () => {
-  test("defaults chat.mode to cloud", () => {
+  test("defaults generation + storage to cloud", () => {
     const c = ConfigSchema.parse({ provider: { id: "anthropic-messages", model: "m", baseUrl: "https://x" } })
-    expect(c.chat.mode).toBe("cloud")
+    expect(c.chat).toEqual({ generation: "cloud", storage: "cloud" })
   })
-  test("parses chat.mode local", () => {
+  test("parses local generation + local storage", () => {
     const c = ConfigSchema.parse({
       provider: { id: "anthropic-messages", model: "m", baseUrl: "https://x" },
-      chat: { mode: "local" },
+      chat: { generation: "local", storage: "local" },
     })
-    expect(c.chat.mode).toBe("local")
+    expect(c.chat).toEqual({ generation: "local", storage: "local" })
   })
-  test("rejects an unknown chat.mode", () => {
+  test("rejects an unknown generation", () => {
     expect(() =>
       ConfigSchema.parse({
         provider: { id: "anthropic-messages", model: "m", baseUrl: "https://x" },
-        chat: { mode: "bogus" },
+        chat: { generation: "bogus" },
       }),
     ).toThrow()
   })
-  test("defaultConfig includes chat cloud", () => {
-    expect(defaultConfig.chat).toEqual({ mode: "cloud" })
+  test("defaultConfig includes chat cloud/cloud", () => {
+    expect(defaultConfig.chat).toEqual({ generation: "cloud", storage: "cloud" })
   })
 })
 

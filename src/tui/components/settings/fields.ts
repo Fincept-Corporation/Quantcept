@@ -39,12 +39,20 @@ export function configSections(): ConfigSection[] {
       label: "Chat",
       fields: [
         {
+          label: "Generation",
+          kind: "enum",
+          path: "chat.generation",
+          choices: ["cloud", "local"],
+          get: () => c.chat.generation,
+          hint: "cloud = Fincept (server-side) · local = on-device agent loop",
+        },
+        {
           label: "Storage",
           kind: "enum",
-          path: "chat.mode",
+          path: "chat.storage",
           choices: ["cloud", "local"],
-          get: () => c.chat.mode,
-          hint: "cloud = Fincept backend (server-side) · local = on this machine",
+          get: () => c.chat.storage,
+          hint: "where chats are saved (forced cloud when generation = cloud)",
         },
       ],
     },
