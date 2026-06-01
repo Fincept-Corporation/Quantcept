@@ -7,10 +7,15 @@ yargs(hideBin(process.argv))
     "$0 [message]",
     "Start Quantcept - Finance AI Terminal",
     (yargs) =>
-      yargs.positional("message", {
-        type: "string",
-        describe: "Initial prompt message",
-      }),
+      yargs
+        .positional("message", { type: "string", describe: "Initial prompt message" })
+        .option("continue", {
+          alias: "c",
+          type: "boolean",
+          describe: "Continue the most recent session in this directory",
+        })
+        // No explicit type: bare `-r` → true (open picker); `-r <id>` → string (resume that id).
+        .option("resume", { alias: "r", describe: "Resume a session by id, or open the picker (bare -r)" }),
     async (args) => {
       const { createQuantceptRenderer, startApp } = await import("@tui/app")
       const renderer = await createQuantceptRenderer()
@@ -18,6 +23,8 @@ yargs(hideBin(process.argv))
         renderer,
         args: {
           prompt: args.message,
+          continue: args.continue as boolean | undefined,
+          resume: args.resume as string | boolean | undefined,
         },
       })
       await handle.done

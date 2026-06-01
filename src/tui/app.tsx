@@ -1,6 +1,8 @@
 import { type CliRenderer, type CliRendererConfig, createCliRenderer } from "@opentui/core"
 import { createDefaultOpenTuiKeymap } from "@opentui/keymap/opentui"
 import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
+import { SessionStore } from "@core/storage"
+import { projectHash } from "@core/storage/paths"
 import { resetLogFloor, setLogFloor } from "@shared/logger"
 import { BuddyProvider, useBuddy } from "@tui/buddy/BuddyContext"
 import { buddyCommands } from "@tui/buddy/buddy.commands"
@@ -19,7 +21,7 @@ import { CommandProvider, useCommands } from "@tui/context/command"
 import { createExit, type Exit, ExitProvider, useExit } from "@tui/context/exit"
 import { KVProvider } from "@tui/context/kv"
 import { PluginsProvider, usePlugins } from "@tui/context/plugins"
-import { RouteProvider, type SessionRoute, useRoute } from "@tui/context/route"
+import { type Route, RouteProvider, type SessionRoute, useRoute } from "@tui/context/route"
 import { SkillsProvider, useSkills } from "@tui/context/skills"
 import { SnapshotProvider } from "@tui/context/snapshot"
 import { StorageProvider } from "@tui/context/storage"
@@ -110,6 +112,28 @@ export function startApp(input: AppInput): AppHandle {
   return { ready, done, exit }
 }
 
+/** Resolve the route to land on from launch args. `--continue` reads the most-recent
+ *  session; `--resume <id>` / a positional prompt route straight in; bare `--resume`
+ *  (resume === true) stays home and the Home screen opens the picker on mount. */
+function computeInitialRoute(args: Args): Route {
+  if (typeof args.resume === "string" && args.resume) return { type: "session", sessionID: args.resume }
+  if (args.continue) {
+    try {
+      const store = new SessionStore()
+      const id = store.mostRecent(projectHash(process.cwd()))?.id
+      store.close()
+      if (id) return { type: "session", sessionID: id }
+    } catch {
+      // storage unavailable → fall through to home
+    }
+  }
+  if (args.prompt) {
+    const sessionID = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    return { type: "session", sessionID, initialMessage: args.prompt }
+  }
+  return { type: "home" }
+}
+
 async function mountApp(input: AppInput & { keymap: ReturnType<typeof createDefaultOpenTuiKeymap>; exit: Exit }) {
   const renderer = input.renderer
   void renderer.getPalette({ size: 16 }).catch(() => undefined)
@@ -132,7 +156,7 @@ async function mountApp(input: AppInput & { keymap: ReturnType<typeof createDefa
                 <StorageProvider>
                   <SnapshotProvider>
                     <TuiConfigProvider>
-                      <RouteProvider>
+                      <RouteProvider initialRoute={computeInitialRoute(input.args)}>
                         <ThemeProvider mode={mode}>
                           <ToastProvider>
                             <DialogProvider>
