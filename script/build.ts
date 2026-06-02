@@ -64,6 +64,14 @@ for (const t of targets) {
     const out = await Bun.$`${binPath} --version`.text()
     if (!out.trim()) throw new Error(`Smoke test failed for ${name}`)
     console.log(`Smoke test passed for ${name}: ${out.trim()}`)
+    // Tree-sitter grammar wasm must load inside the compiled binary (historically the weak
+    // point): run `verify` on a fixture seeded with a known bias and assert it is reported.
+    const verifyRes = await Bun.$`${binPath} verify script/fixtures/biased-strategy.py`.nothrow()
+    const verifyOut = verifyRes.stdout.toString() + verifyRes.stderr.toString()
+    if (!verifyOut.includes("bias/lookahead-shift")) {
+      throw new Error(`Tree-sitter binary smoke failed for ${name}: grammar wasm did not load.\n${verifyOut}`)
+    }
+    console.log(`Tree-sitter binary smoke passed for ${name}`)
   }
 
   fs.writeFileSync(
