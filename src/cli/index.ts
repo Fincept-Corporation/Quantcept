@@ -63,6 +63,15 @@ yargs(hideBin(process.argv))
       await runJobsCli(argv.action as string | undefined, (argv.rest as string[]) ?? [])
     },
   )
+  .command(
+    "verify [file]",
+    "Structurally verify a Python strategy file for lookahead bias",
+    (y) => y.positional("file", { type: "string", describe: "Path to a .py file" }),
+    async (argv) => {
+      const { runVerifyCli } = await import("@cli/verify-command")
+      await runVerifyCli(argv.file as string | undefined)
+    },
+  )
   .help()
   .version("0.1.0")
   .parse()
