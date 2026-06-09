@@ -7,11 +7,18 @@ import {
   FinceptBilling,
   FinceptClient,
   FinceptLearnings,
+  type FinceptSession,
   FinceptSync,
+  FinceptTelegram,
   type RegisterReq,
+  type SocialProvider,
+  startSocialLogin,
   subscribeCredits,
+  subscribeSessionInvalidated,
 } from "@core/fincept"
-import { FinceptAuthError, FinceptError } from "@shared/errors"
+import { LearningsSidecar } from "@core/learnings/sidecar"
+import { FinceptAuthError, FinceptError, SocialLoginRequiredError } from "@shared/errors"
+import { openBrowser } from "@shared/open-browser"
 import { createSignal, onCleanup, onMount } from "solid-js"
 import { createSimpleContext } from "./helper"
 
@@ -27,22 +34,56 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
   name: "Auth",
   init: (props: { baseUrl?: string }) => {
     const cfg = loadConfig().fincept
-    const client = new FinceptClient(props.baseUrl ?? cfg.baseUrl)
-    const auth = new FinceptAuth(client)
+    const baseUrl = props.baseUrl ?? cfg.baseUrl
 
     const [status, setStatus] = createSignal<AuthStatus>("checking")
     const [account, setAccount] = createSignal<Account | undefined>()
-    const [token, setToken] = createSignal<string | undefined>(cfg.apiKey)
+    const [session, setSession] = createSignal<FinceptSession | undefined>(
+      cfg.apiKey ? { apiKey: cfg.apiKey, sessionToken: cfg.sessionToken } : undefined,
+    )
     const [error, setError] = createSignal<string | undefined>()
-    // Account + billing services bound to the live token — Settings UI calls these.
-    const accountApi = new FinceptAccount(client, token)
-    const billing = new FinceptBilling(client, token)
+    const [interruptedReason, setInterruptedReason] = createSignal<string | undefined>()
+
+    const apiKey = () => session()?.apiKey
+    const client = new FinceptClient(baseUrl, undefined, () => session())
+    const auth = new FinceptAuth(client)
+
+    // Account + billing services bound to the live key — Settings UI calls these.
+    const accountApi = new FinceptAccount(client, apiKey)
+    const billing = new FinceptBilling(client, apiKey)
     // Cloud-sync (watchlists/notes/portfolios) + community learnings — the /cloud and /learnings modals call these.
-    const sync = new FinceptSync(client, token)
-    const learnings = new FinceptLearnings(client, token)
+    const sync = new FinceptSync(client, apiKey)
+    const learnings = new FinceptLearnings(client, apiKey)
+    const telegram = new FinceptTelegram(client, apiKey)
+    // P2P learnings client (drives the Go `learnings` sidecar binary). The
+    // tracker URL is learned from /stats so the sidecar can seed.
+    const [trackerUrl, setTrackerUrl] = createSignal<string | undefined>(undefined)
+    const learningsSidecar = new LearningsSidecar({
+      apiUrl: baseUrl,
+      token: apiKey,
+      trackerUrl: () => trackerUrl(),
+    })
+
+    // "Connected to the network by default": when signed in, seed downloaded
+    // learnings in the background to contribute to the swarm. Opt out via
+    // fincept.seedByDefault=false. Graceful no-op if the sidecar binary or a
+    // tracker URL isn't available, so it never blocks or breaks sign-in.
+    let seedHandle: { stop: () => void } | undefined
+    async function connectToNetwork() {
+      if (cfg.seedByDefault === false || seedHandle) return
+      try {
+        const r = await learnings.stats()
+        const url = r.data?.tracker_url
+        if (!url) return
+        setTrackerUrl(url)
+        seedHandle = learningsSidecar.seedStart()
+      } catch {
+        /* offline / sidecar unavailable — user can still download on demand */
+      }
+    }
 
     async function refresh() {
-      const t = token()
+      const t = apiKey()
       if (!t) {
         setStatus("unauthed")
         return
@@ -55,15 +96,16 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
           setAccount(me.data)
           setFinceptAuth({ lastValidatedAt: new Date().toISOString() })
           setStatus("authed")
+          void connectToNetwork()
         } else {
           clearFinceptAuth()
-          setToken(undefined)
+          setSession(undefined)
           setStatus("unauthed")
         }
       } catch (e) {
         if (e instanceof FinceptAuthError) {
           clearFinceptAuth()
-          setToken(undefined)
+          setSession(undefined)
           setStatus("unauthed")
         } else {
           // network/other — trust the stored key, enter offline (graceful-offline decision)
@@ -78,7 +120,7 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
      * this so opening it always pulls fresh data — and self-heals if startup validation went offline.
      */
     async function reloadAccount() {
-      const t = token()
+      const t = apiKey()
       if (!t) return
       try {
         const me = await auth.me(t)
@@ -90,9 +132,14 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
       }
     }
 
-    function adopt(t: string, partial: { userId?: string; email?: string; username?: string }) {
-      setToken(t)
-      setFinceptAuth({ apiKey: t, ...partial, lastValidatedAt: new Date().toISOString() })
+    function adopt(s: FinceptSession, partial: { userId?: string; email?: string; username?: string }) {
+      setSession(s)
+      setFinceptAuth({
+        apiKey: s.apiKey,
+        sessionToken: s.sessionToken,
+        ...partial,
+        lastValidatedAt: new Date().toISOString(),
+      })
     }
 
     onMount(refresh)
@@ -102,7 +149,22 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
     const unsubCredits = subscribeCredits((balance) => {
       setAccount((a) => (a ? { ...a, credit_balance: balance } : a))
     })
-    onCleanup(() => unsubCredits())
+    const unsubInvalidated = subscribeSessionInvalidated((reason) => {
+      clearFinceptAuth()
+      setSession(undefined)
+      setAccount(undefined)
+      setInterruptedReason(
+        reason === "session_invalidated"
+          ? "Signed in on another device — please log in again."
+          : "Session ended — please log in again.",
+      )
+      setStatus("unauthed")
+    })
+    onCleanup(() => {
+      unsubCredits()
+      unsubInvalidated()
+      seedHandle?.stop()
+    })
 
     return {
       get status() {
@@ -132,7 +194,7 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
           const r = await auth.verifyOtp(email, otp)
           // Adopt the key but DON'T flip the gate yet — AuthGate shows a result screen for a beat,
           // then calls reloadAccount() to transition into the app.
-          adopt(r.data.api_key, { userId: r.data.user_id, email })
+          adopt({ apiKey: r.data.api_key, sessionToken: r.data.session_token }, { userId: r.data.user_id, email })
           return "ok"
         } catch (e) {
           const code = e instanceof FinceptError ? e.code : ""
@@ -140,22 +202,46 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
           return code === "otp_expired" || code === "too_many_attempts" ? "expired" : "error"
         }
       },
-      login: async (email: string, password: string, forceLogin = false): Promise<"ok" | "unverified" | "error"> => {
+      login: async (
+        email: string,
+        password: string,
+        forceLogin = false,
+      ): Promise<"ok" | "unverified" | "active_session" | "use_social" | "error"> => {
         setError(undefined)
         try {
           const r = await auth.login(email, password, forceLogin)
-          adopt(r.data.api_key, { userId: r.data.user_id, email: r.data.email, username: r.data.username })
+          adopt(
+            { apiKey: r.data.api_key, sessionToken: r.data.session_token },
+            { userId: r.data.user_id, email: r.data.email, username: r.data.username },
+          )
           await refresh()
           return "ok"
         } catch (e) {
+          // This account uses a social provider (no password) — route to social sign-in.
+          if (e instanceof SocialLoginRequiredError) return "use_social"
           // Unverified email: the backend just issued a fresh OTP — route to OTP entry.
           if (e instanceof FinceptError && e.code === "account_not_verified") return "unverified"
+          // Already signed in elsewhere — the gate offers a one-key "take over" confirm
+          // (which retries with forceLogin). Don't surface the raw force_login message.
+          if (e instanceof FinceptError && e.code === "active_session_exists") return "active_session"
+          setError((e as Error).message)
+          return "error"
+        }
+      },
+      socialLogin: async (provider: SocialProvider): Promise<"ok" | "error"> => {
+        setError(undefined)
+        try {
+          const s = await startSocialLogin(provider, { baseUrl, open: openBrowser })
+          adopt(s, {})
+          await refresh()
+          return "ok"
+        } catch (e) {
           setError((e as Error).message)
           return "error"
         }
       },
       logout: async () => {
-        const t = token()
+        const t = apiKey()
         if (t) {
           try {
             await auth.logout(t)
@@ -164,16 +250,16 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
           }
         }
         clearFinceptAuth()
-        setToken(undefined)
+        setSession(undefined)
         setAccount(undefined)
         setStatus("unauthed")
       },
       regenerate: async () => {
-        const t = token()
+        const t = apiKey()
         if (!t) return
         try {
           const r = await auth.regenerate(t)
-          adopt(r.data.api_key, {})
+          adopt({ apiKey: r.data.api_key, sessionToken: session()?.sessionToken }, {})
           await refresh()
         } catch (e) {
           setError((e as Error).message)
@@ -199,10 +285,16 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
           return false
         }
       },
+      get interruptedReason() {
+        return interruptedReason()
+      },
+      clearInterrupted: () => setInterruptedReason(undefined),
+      telegram,
       accountApi,
       billing,
       sync,
       learnings,
+      learningsSidecar,
       refresh,
       reloadAccount,
     }
