@@ -1,7 +1,7 @@
 import { FinceptAuthError, FinceptError, InsufficientCreditsError, SocialLoginRequiredError } from "@shared/errors"
 import { publishCredits } from "./credits"
-import { publishSessionInvalidated } from "./session-events"
 import { fetchTransport, type HttpTransport } from "./http"
+import { publishSessionInvalidated } from "./session-events"
 import type { FinceptEnvelope, FinceptSession } from "./types"
 
 export interface FinceptRequest {
