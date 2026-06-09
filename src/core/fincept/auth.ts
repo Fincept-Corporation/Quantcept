@@ -1,12 +1,12 @@
 import type { FinceptClient } from "./client"
-import type { Account, LoginData, RegisterReq, StatusData, VerifyOtpData } from "./types"
+import type { Account, LoginData, RegisterData, RegisterReq, StatusData, VerifyOtpData } from "./types"
 
 /** Auth flows over the Fincept backend. Thin — all HTTP/error handling lives in FinceptClient. */
 export class FinceptAuth {
   constructor(private readonly client: FinceptClient) {}
 
   register(req: RegisterReq) {
-    return this.client.request<null>({ method: "POST", path: "/v1/users", body: req })
+    return this.client.request<RegisterData>({ method: "POST", path: "/v1/users", body: req })
   }
   verifyOtp(email: string, otp: string) {
     return this.client.request<VerifyOtpData>({ method: "POST", path: "/v1/sessions/otp", body: { email, otp } })

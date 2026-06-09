@@ -3,6 +3,7 @@ import { FinceptClient } from "@core/fincept/client"
 import type { HttpTransport } from "@core/fincept/http"
 import { FinceptAuthError, SocialLoginRequiredError } from "@shared/errors"
 import { subscribeSessionInvalidated } from "@core/fincept/session-events"
+import { FinceptAuth } from "@core/fincept/auth"
 
 function capture(): { calls: { url: string; init: RequestInit }[]; transport: HttpTransport } {
   const calls: { url: string; init: RequestInit }[] = []
@@ -55,4 +56,13 @@ test("other 401 throws plain FinceptAuthError without publishing", async () => {
   await expect(client.request({ method: "GET", path: "/x", token: "k" })).rejects.toBeInstanceOf(FinceptAuthError)
   off()
   expect(published).toBe(false)
+})
+
+test("verifyOtp passes session_token through from the backend", async () => {
+  const transport: HttpTransport = async () =>
+    new Response(JSON.stringify({ success: true, data: { api_key: "k", session_token: "s", user_id: "u", account_type: "free" } }), { status: 200 })
+  const auth = new FinceptAuth(new FinceptClient("https://api.test", transport))
+  const r = await auth.verifyOtp("a@x.com", "123456")
+  expect(r.data.session_token).toBe("s")
+  expect(r.data.api_key).toBe("k")
 })

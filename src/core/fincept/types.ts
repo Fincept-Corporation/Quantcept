@@ -35,10 +35,24 @@ export interface LoginData {
   is_admin: boolean
 }
 
-export interface VerifyOtpData {
+/** Every auth entry point (verify, login, social) now returns this same bundle. */
+export interface SessionData {
   api_key: string
+  session_token: string
   user_id: string
   account_type: string
+  username?: string
+  email?: string
+  credit_balance?: number
+  is_admin?: boolean
+}
+
+/** Signup OTP verify — now returns a full session bundle (api_key + session_token). */
+export type VerifyOtpData = SessionData
+
+/** Register response — telegram_link present only when the backend has Telegram configured. */
+export interface RegisterData {
+  telegram_link?: string
 }
 
 export interface StatusData {
