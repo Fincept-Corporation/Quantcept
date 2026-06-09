@@ -2,6 +2,10 @@ import { describe, expect, test } from "bun:test"
 import { resolvePython, runYfinance } from "@core/tools/finance/runYfinance"
 
 const py = resolvePython()
+// Live tests spawn the Python yfinance sidecar and hit Yahoo over the network. They are skipped
+// by default (CI has python3 but not yfinance, and networks are flaky) and only run when opted in
+// with RUN_LIVE_FINANCE=1. The non-network tests below always run.
+const live = process.env.RUN_LIVE_FINANCE === "1"
 
 describe("runYfinance", () => {
   test("resolvePython returns a path or null", () => {
@@ -13,7 +17,7 @@ describe("runYfinance", () => {
     expect("error" in r).toBe(true)
   })
   test("info returns data with longName/marketCap", async () => {
-    if (!py) return
+    if (!py || !live) return
     const r = await runYfinance("AAPL", "info")
     expect("data" in r).toBe(true)
     if ("data" in r) {
@@ -22,12 +26,12 @@ describe("runYfinance", () => {
     }
   })
   test("income returns a data object", async () => {
-    if (!py) return
+    if (!py || !live) return
     const r = await runYfinance("AAPL", "income")
     expect("data" in r).toBe(true)
   })
   test("history with period returns dated OHLCV", async () => {
-    if (!py) return
+    if (!py || !live) return
     const r = await runYfinance("AAPL", "history", { period: "5d" })
     expect("data" in r).toBe(true)
     if ("data" in r) {
