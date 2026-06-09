@@ -2,7 +2,13 @@ name: Release
 
 # Publishes Quantcept to npm: the per-platform compiled binaries as their own
 # packages (quantcept-<os>-<arch>), then the root launcher package with matching
-# optionalDependencies. Bun cross-compiles all four targets on one Linux runner.
+# optionalDependencies.
+#
+# Each platform is built ON its native runner — @opentui/core loads a native
+# rendering lib via `import(@opentui/core-<platform>-<arch>)`, which only resolves
+# when that platform's package is installed (i.e. on that OS). So we use a build
+# matrix (native build + per-platform smoke test) and a final publish job that
+# collects the four artifacts.
 #
 # Trigger by pushing a tag `vX.Y.Z` (which must match package.json "version"), or
 # run manually via "Run workflow". Requires repo secret NPM_TOKEN (an npm automation
@@ -18,25 +24,16 @@ permissions:
   contents: read
 
 jobs:
-  publish:
+  # Quality gates + tag/version check, once, before we build or publish anything.
+  gates:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
-
-      # Node + npm for publishing (writes ~/.npmrc auth from NODE_AUTH_TOKEN).
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          registry-url: "https://registry.npmjs.org"
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
-      # On a tag push, the tag must match package.json "version" (vX.Y.Z -> X.Y.Z).
       - name: Verify tag matches package.json version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -47,8 +44,6 @@ jobs:
             exit 1
           fi
           echo "Releasing version $PKG"
-
-      # Quality gates before we publish anything immutable.
       - name: Typecheck
         run: bun run typecheck
       - name: Lint
@@ -56,12 +51,56 @@ jobs:
       - name: Test
         run: bun test
 
-      # Cross-compile all four targets (no --single). Produces:
-      #   dist/quantcept-<os>-<arch>/{package.json, bin/quantcept[.exe]}
-      - name: Build all platform binaries
-        run: bun run script/build.ts
+  # Build (and smoke-test) each platform on its own native runner, where the
+  # @opentui/core native package for that platform is installed. Produces
+  # dist/quantcept-<os>-<arch>/{package.json, bin/quantcept[.exe]} and uploads it.
+  build:
+    needs: gates
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { runner: macos-14, target: darwin-arm64 } # Apple Silicon
+          - { runner: macos-13, target: darwin-x64 } # Intel mac
+          - { runner: ubuntu-latest, target: linux-x64 }
+          - { runner: windows-latest, target: windows-x64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      # --single builds only the current platform AND runs the smoke + tree-sitter
+      # checks for it, so every published binary is validated on its real OS.
+      - name: Build platform binary
+        run: bun run script/build.ts --single
+      - name: Upload platform package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/quantcept-*
+          if-no-files-found: error
 
-      # Publish each platform package first, so the root's optionalDependencies resolve.
+  # Collect the four platform packages and publish: platform packages first (so the
+  # root's optionalDependencies resolve), then the root launcher.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+      - name: Download platform packages
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Show collected packages
+        run: ls -la dist && ls -la dist/quantcept-* || true
       - name: Publish platform packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -73,8 +112,6 @@ jobs:
             echo "Publishing ${name}@${ver}"
             npm publish "$dir" --access public
           done
-
-      # Pin matching optionalDependencies onto the root package, then publish it.
       - name: Publish root launcher package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
