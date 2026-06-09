@@ -259,6 +259,9 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
         if (!t) return
         try {
           const r = await auth.regenerate(t)
+          // Rotating the long-lived API key does NOT end the device session, so keep the current
+          // sessionToken. If the backend ever invalidates the session on key-regen, the next call
+          // 401s with session_invalidated and we re-gate — safe either way, never a silent break.
           adopt({ apiKey: r.data.api_key, sessionToken: session()?.sessionToken }, {})
           await refresh()
         } catch (e) {
