@@ -1,4 +1,6 @@
 import { useRenderer } from "@opentui/solid"
+import { displayModel } from "@shared/branding"
+import { VERSION } from "@shared/version"
 import { BuddySprite } from "@tui/buddy/BuddySprite"
 import { useTheme } from "@tui/context/theme"
 import { formatElapsed } from "@tui/finance/time"
@@ -109,9 +111,10 @@ export function Sidebar(props: SidebarProps) {
     >
       <scrollbox flexGrow={1}>
         <box flexShrink={0} gap={1} paddingRight={1}>
-          {/* Buddy at top */}
+          {/* Buddy at top — full sprite; BuddySprite auto-collapses to the 1-line
+              face on a narrow terminal (< MIN_COLS_FOR_FULL_SPRITE). */}
           <box alignItems="center" flexShrink={0}>
-            <BuddySprite compact />
+            <BuddySprite />
           </box>
 
           <box height={1} flexShrink={0}>
@@ -129,7 +132,7 @@ export function Sidebar(props: SidebarProps) {
           {/* VITALS — live session readout */}
           <Section label="VITALS" color={theme.secondary}>
             <text fg={theme.textMuted}>
-              Model: <span style={{ fg: theme.text }}>{props.model ?? "—"}</span>
+              Model: <span style={{ fg: theme.text }}>{displayModel(props.model)}</span>
             </text>
             <text fg={theme.textMuted}>
               Tokens: <span style={{ fg: theme.accent }}>{formatTokens(props.tokens ?? 0)}</span>
@@ -161,10 +164,12 @@ export function Sidebar(props: SidebarProps) {
                   <text fg={theme.textMuted}>
                     <span
                       style={{
-                        fg: a.toolStatus === "running" ? theme.warning : a.toolIsError ? theme.error : theme.success,
+                        // Grey while running, green when done, red on error — rectangular markers
+                        // to match the chat tool nodes (no circles).
+                        fg: a.toolStatus === "running" ? theme.textMuted : a.toolIsError ? theme.error : theme.success,
                       }}
                     >
-                      {a.toolStatus === "running" ? "◌ " : a.toolIsError ? "✗ " : "✓ "}
+                      {a.toolStatus === "running" ? "▪ " : "■ "}
                     </span>
                     {a.toolName}
                   </text>
@@ -180,6 +185,9 @@ export function Sidebar(props: SidebarProps) {
 
           {/* ACTIONS — keybind shortcuts */}
           <Section label="ACTIONS" color={theme.secondary}>
+            <text fg={theme.textMuted}>
+              <span style={{ fg: theme.accent }}>Esc</span> Back to home
+            </text>
             <text fg={theme.textMuted}>
               <span style={{ fg: theme.accent }}>Ctrl+N</span> New session
             </text>
@@ -203,7 +211,7 @@ export function Sidebar(props: SidebarProps) {
           <span style={{ fg: theme.text }}>
             <b>cept</b>
           </span>{" "}
-          <span>v0.1.0</span>
+          <span>v{VERSION}</span>
         </text>
       </box>
     </box>
