@@ -1,4 +1,5 @@
 import type { Job } from "@core/jobs/types"
+import { ellipsize } from "@shared/format"
 
 export interface JobRowView {
   id: string
@@ -9,8 +10,7 @@ export interface JobRowView {
 }
 
 export function truncateGoal(s: string, n = 48): string {
-  const one = s.replace(/\s+/g, " ").trim()
-  return one.length <= n ? one : `${one.slice(0, n - 1)}…`
+  return ellipsize(s, n)
 }
 
 /** Human next-run: "—" when unset, else a compact local time. */

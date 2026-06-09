@@ -21,6 +21,15 @@ async function init(): Promise<void> {
   return initPromise
 }
 
+/** Release a parsed tree's wasm allocation. No-op for null or a tree without delete(). */
+export function freeTree(tree: Any): void {
+  try {
+    tree?.delete?.()
+  } catch {
+    // best-effort cleanup; never fatal
+  }
+}
+
 /** Convert a web-tree-sitter node into a pure Span. */
 export function spanOf(node: Any): Span {
   return {

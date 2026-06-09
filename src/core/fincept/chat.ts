@@ -40,6 +40,46 @@ export interface ConversationDetail {
   messages: CloudMessage[]
 }
 
+/** Concatenated text of a cloud message's text parts. */
+export function cloudMessageText(m: CloudMessage): string {
+  return m.parts
+    .filter((p) => p.type === "text")
+    .map((p) => p.text ?? "")
+    .join("")
+}
+
+/**
+ * Split a resumed conversation's messages into the turns worth RENDERING and
+ * the text of the last UNANSWERED question (to reload into the prompt for retry).
+ *
+ * A turn is unanswered when a `user` message is immediately followed by a
+ * `failed` assistant reply or by no assistant reply at all. Those user bubbles
+ * (and any `failed` assistant turns) are dropped from `rendered` so resume
+ * doesn't show dead "You" bubbles; the most recent such question is returned as
+ * `lastFailedQuestion`.
+ */
+export function partitionResumeMessages(messages: CloudMessage[]): {
+  rendered: CloudMessage[]
+  lastFailedQuestion: string
+} {
+  const rendered: CloudMessage[] = []
+  let lastFailedQuestion = ""
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]!
+    if (m.role === "assistant" && m.status === "failed") continue
+    if (m.role === "user") {
+      const next = messages[i + 1]
+      const answered = next && next.role === "assistant" && next.status !== "failed"
+      if (!answered) {
+        lastFailedQuestion = cloudMessageText(m)
+        continue
+      }
+    }
+    rendered.push(m)
+  }
+  return { rendered, lastFailedQuestion }
+}
+
 export interface SendBody {
   content: string
   client_message_id?: string
@@ -56,6 +96,13 @@ export interface SendResult {
   stream_id: string
   stream_token: string
   replayed?: boolean
+}
+
+/** One client-tool call the cloud generation wants executed on this machine. */
+export interface TerminalCall {
+  call_id: string
+  tool_name: string
+  input: unknown
 }
 
 const BASE = "/v1/chat"
@@ -133,6 +180,42 @@ export class FinceptChat {
 
   cancelGeneration(genId: string): Promise<FinceptResult<null>> {
     return this.client.request({ method: "POST", path: `${BASE}/generations/${genId}/cancel`, token: this.token })
+  }
+
+  // ── Terminal-tool bridge: let a cloud generation call this machine's local tools ──
+  // The CLI registers its tool schemas, then (while a generation streams) polls for
+  // calls, executes them locally, and posts the results back. See core/fincept/terminal-tools.
+
+  /** Advertise this machine's locally-executable tools to the cloud model (10-min TTL; re-register per turn). */
+  registerTerminalTools(
+    tools: unknown[],
+    terminalVersion = "quantcept-cli",
+  ): Promise<FinceptResult<{ status: string }>> {
+    return this.client.request({
+      method: "POST",
+      path: `${BASE}/agent/terminal-tools/register`,
+      body: { tools, terminal_version: terminalVersion },
+      token: this.token,
+    })
+  }
+
+  /** Drain any pending client-tool calls the in-flight generation is waiting on. */
+  pendingTerminalCalls(): Promise<FinceptResult<{ calls: TerminalCall[] }>> {
+    return this.client.request({
+      method: "GET",
+      path: `${BASE}/agent/terminal-tools/pending`,
+      token: this.token,
+    })
+  }
+
+  /** Post a local tool's result back to the (blocked) generation by call id. */
+  submitTerminalResult(callId: string, result: unknown): Promise<FinceptResult<null>> {
+    return this.client.request({
+      method: "POST",
+      path: `${BASE}/agent/terminal-tools/result`,
+      body: { call_id: callId, result },
+      token: this.token,
+    })
   }
 
   approveGeneration(genId: string, body: { approved: boolean; edited_input?: unknown }): Promise<FinceptResult<null>> {

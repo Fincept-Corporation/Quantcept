@@ -1,8 +1,17 @@
 import type { Note, Portfolio, Watchlist } from "@core/fincept"
-import { useKeyboard, useRenderer } from "@opentui/solid"
+import { useRenderer } from "@opentui/solid"
 import { FinceptAuthError, InsufficientCreditsError } from "@shared/errors"
 import type { AuthContext } from "@tui/context/auth"
 import { useTheme } from "@tui/context/theme"
+import {
+  ModalFormView,
+  ModalFrame,
+  ModalList,
+  useListNav,
+  useModalForm,
+  useModalKeyboard,
+  useNotice,
+} from "@tui/ui/modal"
 import { createSignal, For, Show } from "solid-js"
 
 type View = "menu" | "watchlists" | "notes" | "portfolios" | "detail" | `wl:${string}`
@@ -15,12 +24,6 @@ type Row =
   | { kind: "note"; note: Note }
   | { kind: "pf"; pf: Portfolio }
   | { kind: "info"; label: string }
-
-interface InputSpec {
-  title: string
-  fields: string[]
-  onComplete: (values: string[]) => Promise<void> | void
-}
 
 const MENU: { key: View; label: string }[] = [
   { key: "watchlists", label: "Watchlists" },
@@ -38,49 +41,23 @@ export function CloudModal(props: { auth: AuthContext; onClose: () => void }) {
   const { theme } = useTheme()
   const renderer = useRenderer()
   const sync = props.auth.sync
+  const notice = useNotice({ mapError: errMsg })
+  const form = useModalForm({ onError: notice.fail })
 
   const [view, setView] = createSignal<View>("menu")
-  const [cursor, setCursor] = createSignal(0)
   const [rows, setRows] = createSignal<Row[]>([])
   const [loading, setLoading] = createSignal(false)
-  const [notice, setNotice] = createSignal<string | undefined>()
-  const [err, setErr] = createSignal<string | undefined>()
   const [detail, setDetail] = createSignal<{ title: string; lines: string[]; from: View }>()
 
-  // multi-step text input
-  const [input, setInput] = createSignal<InputSpec | null>(null)
-  const [stepIdx, setStepIdx] = createSignal(0)
-  const [vals, setVals] = createSignal<string[]>([])
-  const [buf, setBuf] = createSignal("")
-
-  const rerender = () => renderer.requestRender()
-  const flash = (m: string) => {
-    setNotice(m)
-    setErr(undefined)
-    rerender()
-  }
-  const fail = (m: string) => {
-    setErr(m)
-    setNotice(undefined)
-    rerender()
-  }
   const run = (p: Promise<unknown> | unknown): Promise<void> =>
     Promise.resolve(p)
       .then(() => undefined)
-      .catch((e) => fail(errMsg(e)))
-  function startInput(spec: InputSpec) {
-    setInput(spec)
-    setStepIdx(0)
-    setVals([])
-    setBuf("")
-    setErr(undefined)
-    rerender()
-  }
+      .catch((e) => notice.fail(e))
 
   async function loadView(v: View) {
     if (v === "menu" || v === "detail") return
     setLoading(true)
-    setErr(undefined)
+    notice.clear()
     setRows([])
     try {
       if (v === "watchlists") {
@@ -90,7 +67,7 @@ export function CloudModal(props: { auth: AuthContext; onClose: () => void }) {
             kind: "add",
             label: "＋ New watchlist",
             act: () =>
-              startInput({
+              form.start({
                 title: "New watchlist",
                 fields: ["Name"],
                 onComplete: ([name]) =>
@@ -106,7 +83,7 @@ export function CloudModal(props: { auth: AuthContext; onClose: () => void }) {
             kind: "add",
             label: "＋ New note",
             act: () =>
-              startInput({
+              form.start({
                 title: "New note",
                 fields: ["Title", "Content"],
                 onComplete: ([title, content]) =>
@@ -127,7 +104,7 @@ export function CloudModal(props: { auth: AuthContext; onClose: () => void }) {
             kind: "add",
             label: "＋ Add stock",
             act: () =>
-              startInput({
+              form.start({
                 title: "Add stock",
                 fields: ["Symbol"],
                 onComplete: ([sym]) =>
@@ -138,18 +115,17 @@ export function CloudModal(props: { auth: AuthContext; onClose: () => void }) {
         ])
       }
     } catch (e) {
-      fail(errMsg(e))
+      notice.fail(e)
     } finally {
       setLoading(false)
-      rerender()
+      renderer.requestRender()
     }
   }
 
   function enter(v: View) {
     setView(v)
-    setCursor(0)
-    setNotice(undefined)
-    setErr(undefined)
+    nav.setCursor(0)
+    notice.clear()
     void loadView(v)
   }
   function back() {
@@ -160,129 +136,60 @@ export function CloudModal(props: { auth: AuthContext; onClose: () => void }) {
       props.onClose()
       return
     } else setView("menu")
-    setCursor(0)
-    rerender()
+    nav.setCursor(0)
+    renderer.requestRender()
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: @opentui keyboard event is untyped (matches SettingsModal)
-  useKeyboard((e: any) => {
-    const spec = input()
-    if (spec) {
-      if (e.name === "escape") {
-        setInput(null)
-        rerender()
-      } else if (e.name === "return" || e.name === "kpenter") {
-        const collected = [...vals(), buf()]
-        if (stepIdx() < spec.fields.length - 1) {
-          setVals(collected)
-          setStepIdx(stepIdx() + 1)
-          setBuf("")
-          rerender()
-        } else {
-          setInput(null)
-          void Promise.resolve(spec.onComplete(collected)).catch((x) => fail(errMsg(x)))
-        }
-      } else if (e.name === "backspace") {
-        setBuf((b) => b.slice(0, -1))
-        rerender()
-      } else if (typeof e.sequence === "string" && e.sequence.length === 1 && !e.ctrl && !e.meta) {
-        setBuf((b) => b + e.sequence)
-        rerender()
-      }
-      return
-    }
+  const menuRows = (): Row[] => MENU.map((m) => ({ kind: "menu", key: m.key, label: m.label }))
+  const items = (): Row[] => (view() === "menu" ? menuRows() : rows())
 
-    if (view() === "detail") {
-      if (e.name === "escape" || e.name === "left") {
-        e.preventDefault?.()
-        back()
-      }
-      return
-    }
-
-    const list = rows()
-    if (e.name === "escape" || (e.name === "left" && view() !== "menu")) {
-      e.preventDefault?.()
-      back()
-      return
-    }
-    if (e.name === "up") {
-      e.preventDefault?.()
-      setCursor((c) => Math.max(0, c - 1))
-      rerender()
-      return
-    }
-    if (e.name === "down") {
-      e.preventDefault?.()
-      const len = view() === "menu" ? MENU.length : list.length
-      setCursor((c) => Math.min(Math.max(0, len - 1), c + 1))
-      rerender()
-      return
-    }
-    const enterKey = e.name === "return" || e.name === "kpenter"
-
-    if (view() === "menu") {
-      if (enterKey) {
-        e.preventDefault?.()
-        const m = MENU[cursor()]
-        if (m) enter(m.key)
-      }
-      return
-    }
-
-    const row = list[cursor()]
-    if (!row) return
-    if (row.kind === "add") {
-      if (enterKey) {
-        e.preventDefault?.()
-        row.act()
-      }
-      return
-    }
-    if (row.kind === "wl" && enterKey) {
-      e.preventDefault?.()
-      enter(`wl:${row.wl.id}`)
-      return
-    }
-    if (row.kind === "note") {
-      if (enterKey) {
-        e.preventDefault?.()
+  const nav = useListNav<Row>({
+    items,
+    onSelect: (row) => {
+      if (row.kind === "menu") enter(row.key)
+      else if (row.kind === "add") row.act()
+      else if (row.kind === "wl") enter(`wl:${row.wl.id}`)
+      else if (row.kind === "note") {
         setDetail({ title: row.note.title, lines: (row.note.content ?? "").split("\n"), from: "notes" })
         setView("detail")
-        rerender()
-      } else if (e.name === "d" || e.sequence === "d") {
-        e.preventDefault?.()
-        void run(sync.notes.remove(row.note.id).then(() => loadView("notes")))
+        renderer.requestRender()
+      } else if (row.kind === "pf") {
+        setDetail({
+          title: row.pf.name,
+          lines: Object.entries(row.pf).map(
+            ([k, val]) => `${k}: ${typeof val === "object" ? JSON.stringify(val) : String(val)}`,
+          ),
+          from: "portfolios",
+        })
+        setView("detail")
+        renderer.requestRender()
       }
-      return
-    }
-    if (row.kind === "pf" && enterKey) {
-      e.preventDefault?.()
-      setDetail({
-        title: row.pf.name,
-        lines: Object.entries(row.pf).map(
-          ([k, val]) => `${k}: ${typeof val === "object" ? JSON.stringify(val) : String(val)}`,
-        ),
-        from: "portfolios",
-      })
-      setView("detail")
-      rerender()
-      return
-    }
-    if (row.kind === "stock" && (e.name === "d" || e.sequence === "d")) {
-      e.preventDefault?.()
-      const id = view().slice(3)
-      void run(sync.watchlists.removeStock(id, row.symbol).then(() => loadView(view())))
-    }
+    },
+    onKey: (e, row) => {
+      if (view() === "detail") {
+        if (e.name === "escape" || e.name === "left") back()
+        return true
+      }
+      if (e.name === "left" && view() !== "menu") {
+        back()
+        return true
+      }
+      const isKey = (ch: string) => e.name === ch || e.sequence === ch
+      if (row?.kind === "note" && isKey("d")) {
+        void run(sync.notes.remove(row.note.id).then(() => loadView("notes")))
+        return true
+      }
+      if (row?.kind === "stock" && isKey("d")) {
+        const id = view().slice(3)
+        void run(sync.watchlists.removeStock(id, row.symbol).then(() => loadView(view())))
+        return true
+      }
+      return false
+    },
+    onEscape: back,
   })
+  useModalKeyboard({ form, nav })
 
-  // ── render ───────────────────────────────────────────────────────────────
-  const WINDOW = 14
-  function windowed<T>(items: T[]): { slice: T[]; offset: number } {
-    if (items.length <= WINDOW) return { slice: items, offset: 0 }
-    const off = Math.min(Math.max(0, cursor() - Math.floor(WINDOW / 2)), items.length - WINDOW)
-    return { slice: items.slice(off, off + WINDOW), offset: off }
-  }
   function label(r: Row): string {
     if (r.kind === "menu") return r.label
     if (r.kind === "add" || r.kind === "info") return r.label
@@ -312,77 +219,34 @@ export function CloudModal(props: { auth: AuthContext; onClose: () => void }) {
     return "↑/↓ · Enter open · Esc back"
   }
 
-  const menuRows = (): Row[] => MENU.map((m) => ({ kind: "menu", key: m.key, label: m.label }))
-  const visibleRows = () => (view() === "menu" ? menuRows() : rows())
-
   return (
-    <box flexDirection="column" minWidth={62} gap={0}>
-      <text fg={theme.accent}>{title()}</text>
-      <box height={1} minHeight={0} />
-
-      <Show when={input()}>
-        {(spec) => (
-          <box flexDirection="column" gap={0}>
-            <text fg={theme.accent}>{spec().title}</text>
-            <For each={vals()}>
-              {(v, i) => (
-                <text fg={theme.textMuted}>
-                  {spec().fields[i()]}: {v}
-                </text>
-              )}
-            </For>
-            <text fg={theme.text}>
-              {spec().fields[stepIdx()]}: {buf()}
-              <span style={{ fg: theme.accent }}>▏</span>
-            </text>
-            <text fg={theme.textMuted}>Enter · Esc cancel</text>
-          </box>
-        )}
-      </Show>
-
-      <Show when={!input() && view() === "detail"}>
-        <box flexDirection="column">
-          <For each={detail()?.lines ?? []}>{(line) => <text fg={theme.text}>{line}</text>}</For>
-        </box>
-      </Show>
-
-      <Show when={!input() && view() !== "detail"}>
-        <Show when={!loading()} fallback={<text fg={theme.textMuted}>Loading…</text>}>
-          <Show when={visibleRows().length > 0} fallback={<text fg={theme.textMuted}>Nothing here.</text>}>
+    <ModalFrame title={title()} footer={footer()} notice={notice.notice()} error={notice.err()}>
+      <Show
+        when={form.active()}
+        fallback={
+          <Show
+            when={view() === "detail"}
+            fallback={
+              <Show when={!loading()} fallback={<text fg={theme.textMuted}>Loading…</text>}>
+                <Show when={items().length > 0} fallback={<text fg={theme.textMuted}>Nothing here.</text>}>
+                  <ModalList
+                    window={nav.window()}
+                    selectable={(r) => r.kind !== "info" && r.kind !== "stock"}
+                    label={label}
+                    right={right}
+                  />
+                </Show>
+              </Show>
+            }
+          >
             <box flexDirection="column">
-              <For each={windowed(visibleRows()).slice}>
-                {(r, i) => {
-                  const idx = () => windowed(visibleRows()).offset + i()
-                  const sel = () => idx() === cursor()
-                  const actionable = r.kind !== "info" && r.kind !== "stock"
-                  return (
-                    <box
-                      flexDirection="row"
-                      justifyContent="space-between"
-                      gap={2}
-                      backgroundColor={sel() && actionable ? theme.backgroundElement : undefined}
-                    >
-                      <text fg={sel() && actionable ? theme.accent : theme.text}>
-                        {(sel() && actionable ? "› " : "  ") + label(r)}
-                      </text>
-                      <text fg={theme.textMuted}>{right(r)}</text>
-                    </box>
-                  )
-                }}
-              </For>
+              <For each={detail()?.lines ?? []}>{(line) => <text fg={theme.text}>{line}</text>}</For>
             </box>
           </Show>
-        </Show>
+        }
+      >
+        <ModalFormView form={form} fields={form.spec()?.fields ?? []} title={form.spec()?.title} />
       </Show>
-
-      <box height={1} minHeight={0} />
-      <Show when={notice()}>
-        <text fg={theme.accent}>{notice()}</text>
-      </Show>
-      <Show when={err()}>
-        <text fg="#ff5555">{err()}</text>
-      </Show>
-      <text fg={theme.textMuted}>{footer()}</text>
-    </box>
+    </ModalFrame>
   )
 }

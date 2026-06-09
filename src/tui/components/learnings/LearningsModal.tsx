@@ -1,21 +1,24 @@
 import type { LearningItem } from "@core/fincept"
-import { useKeyboard, useRenderer } from "@opentui/solid"
+import { useRenderer } from "@opentui/solid"
 import { FinceptAuthError, InsufficientCreditsError } from "@shared/errors"
 import type { AuthContext } from "@tui/context/auth"
 import { useTheme } from "@tui/context/theme"
-import { createSignal, For, Show } from "solid-js"
+import {
+  ModalFormView,
+  ModalFrame,
+  ModalList,
+  useListNav,
+  useModalForm,
+  useModalKeyboard,
+  useNotice,
+} from "@tui/ui/modal"
+import { createSignal, For, onCleanup, Show } from "solid-js"
 
 type View = "feed" | "search" | "detail"
 type Row =
   | { kind: "action"; label: string; act: () => void }
   | { kind: "item"; item: LearningItem }
   | { kind: "info"; label: string }
-
-interface InputSpec {
-  title: string
-  fields: string[]
-  onComplete: (values: string[]) => Promise<void> | void
-}
 
 function errMsg(e: unknown): string {
   if (e instanceof InsufficientCreditsError) return `Insufficient credits (need ${e.required}, have ${e.available}).`
@@ -25,77 +28,98 @@ function errMsg(e: unknown): string {
 
 /**
  * The community "learnings" registry: search (pgvector), browse the feed, view
- * a learning's metadata, get a download URL, and publish. Reads auth.learnings.
+ * a learning's metadata, get a download URL, and publish. Built on the shared modal layer.
  */
 export function LearningsModal(props: { auth: AuthContext; onClose: () => void }) {
   const { theme } = useTheme()
   const renderer = useRenderer()
   const lib = props.auth.learnings
+  const notice = useNotice({ mapError: errMsg })
+  const form = useModalForm({ onError: notice.fail })
 
   const [view, setView] = createSignal<View>("feed")
-  const [cursor, setCursor] = createSignal(0)
   const [rows, setRows] = createSignal<Row[]>([])
   const [loading, setLoading] = createSignal(false)
-  const [notice, setNotice] = createSignal<string | undefined>()
-  const [err, setErr] = createSignal<string | undefined>()
   const [current, setCurrent] = createSignal<LearningItem | undefined>()
+  // Two-press guard for the destructive delete action (no separate confirm dialog in this modal).
+  const [pendingDelete, setPendingDelete] = createSignal(false)
 
-  const [input, setInput] = createSignal<InputSpec | null>(null)
-  const [stepIdx, setStepIdx] = createSignal(0)
-  const [vals, setVals] = createSignal<string[]>([])
-  const [buf, setBuf] = createSignal("")
-
-  const rerender = () => renderer.requestRender()
-  const flash = (m: string) => {
-    setNotice(m)
-    setErr(undefined)
-    rerender()
-  }
-  const fail = (m: string) => {
-    setErr(m)
-    setNotice(undefined)
-    rerender()
-  }
   const run = (p: Promise<unknown> | unknown): Promise<void> =>
     Promise.resolve(p)
       .then(() => undefined)
-      .catch((e) => fail(errMsg(e)))
-  function startInput(spec: InputSpec) {
-    setInput(spec)
-    setStepIdx(0)
-    setVals([])
-    setBuf("")
-    setErr(undefined)
-    rerender()
-  }
+      .catch((e) => notice.fail(e))
 
-  const searchAction = (): Row => ({
-    kind: "action",
-    label: "🔍 Search…",
-    act: () =>
-      startInput({ title: "Search learnings", fields: ["Query"], onComplete: ([q]) => doSearch((q ?? "").trim()) }),
-  })
-  const publishAction = (): Row => ({
-    kind: "action",
-    label: "＋ Publish a learning",
-    act: () =>
-      startInput({
-        title: "Publish learning (pending approval)",
-        fields: ["Title", "Content"],
-        onComplete: ([title, content]) =>
+  const startSearch = () =>
+    form.start({ title: "Search learnings", fields: ["Query"], onComplete: ([q]) => doSearch((q ?? "").trim()) })
+  const startPublish = () =>
+    form.start({
+      title: "Publish learning (pending approval)",
+      fields: ["Title", "Content"],
+      onComplete: ([title, content]) =>
+        run(
+          lib.upload({ title: title ?? "", content: content ?? "" }).then((r) => {
+            const hash = r.data?.torrent_hash
+            notice.flash(
+              hash
+                ? `Published — pending approval. Torrent ${hash.slice(0, 16)}… (seeds on approval).`
+                : "Published — pending admin approval.",
+            )
+          }),
+        ),
+    })
+  const searchAction = (): Row => ({ kind: "action", label: "🔍 Search…", act: startSearch })
+  const publishAction = (): Row => ({ kind: "action", label: "＋ Publish a learning", act: startPublish })
+
+  // Owner actions on a learning (PUT /:id · DELETE /:id · POST /:id/flag). The backend
+  // authorizes — edit/delete only succeed on your own uploads; flag works on any item.
+  function startEdit(it: LearningItem) {
+    form.start(
+      {
+        title: "Edit title",
+        fields: ["Title"],
+        onComplete: ([title]) =>
           run(
             lib
-              .upload({ title: title ?? "", content: content ?? "" })
-              .then(() => flash("Published — pending admin approval.")),
+              // Preserve the existing description (the form prefills one field only).
+              .update(it.id, { title: (title ?? "").trim() || it.title, description: it.description })
+              .then(() => {
+                notice.flash("Updated.")
+                void refreshDetail(it.id)
+              }),
           ),
+      },
+      it.title,
+    )
+  }
+  function startFlag(it: LearningItem) {
+    form.start({
+      title: "Report learning",
+      fields: ["Reason"],
+      onComplete: ([reason]) =>
+        run(lib.flag(it.id, (reason ?? "").trim() || "inappropriate").then(() => notice.flash("Reported — thanks."))),
+    })
+  }
+  function confirmDelete(it: LearningItem) {
+    if (!pendingDelete()) {
+      setPendingDelete(true)
+      notice.flash("Press x again to delete this learning.")
+      return
+    }
+    setPendingDelete(false)
+    void run(
+      lib.remove(it.id).then(() => {
+        notice.flash("Deleted.")
+        detailBack()
+        void loadFeed()
       }),
-  })
+    )
+  }
 
   async function loadFeed() {
     setView("feed")
-    setCursor(0)
+    nav.setCursor(0)
     setLoading(true)
-    setErr(undefined)
+    notice.clear()
     try {
       const r = await lib.list()
       setRows([
@@ -105,19 +129,19 @@ export function LearningsModal(props: { auth: AuthContext; onClose: () => void }
       ])
     } catch (e) {
       setRows([searchAction(), publishAction()])
-      fail(errMsg(e))
+      notice.fail(e)
     } finally {
       setLoading(false)
-      rerender()
+      renderer.requestRender()
     }
   }
 
   async function doSearch(q: string) {
     if (!q) return
     setView("search")
-    setCursor(0)
+    nav.setCursor(0)
     setLoading(true)
-    setErr(undefined)
+    notice.clear()
     try {
       const r = await lib.search(q)
       const results = (r.data?.results ?? []).map((item) => ({ kind: "item", item }) as Row)
@@ -127,109 +151,102 @@ export function LearningsModal(props: { auth: AuthContext; onClose: () => void }
       ])
     } catch (e) {
       setRows([searchAction()])
-      fail(errMsg(e))
+      notice.fail(e)
     } finally {
       setLoading(false)
-      rerender()
+      renderer.requestRender()
+    }
+  }
+
+  let detailTimer: ReturnType<typeof setInterval> | undefined
+  onCleanup(() => clearInterval(detailTimer))
+
+  // Feed items don't carry torrent hash / swarm counts — pull the full detail and
+  // keep it refreshing (~3s) while open so seeders/leechers stay live.
+  async function refreshDetail(id: string) {
+    try {
+      const r = await lib.get(id)
+      if (view() === "detail" && current()?.id === id) {
+        setCurrent(r.data)
+        renderer.requestRender()
+      }
+    } catch {
+      /* keep the feed item we already have */
     }
   }
 
   function openDetail(item: LearningItem) {
     setCurrent(item)
     setView("detail")
-    setNotice(undefined)
-    setErr(undefined)
-    rerender()
+    setPendingDelete(false)
+    notice.clear()
+    void refreshDetail(item.id)
+    clearInterval(detailTimer)
+    detailTimer = setInterval(() => {
+      const c = current()
+      if (view() === "detail" && c) void refreshDetail(c.id)
+      else clearInterval(detailTimer)
+    }, 3000)
+  }
+  function detailBack() {
+    setView("feed")
+    setPendingDelete(false)
+    nav.setCursor(0)
+    renderer.requestRender()
   }
 
-  // load the feed once on open
-  void loadFeed()
-
-  // biome-ignore lint/suspicious/noExplicitAny: @opentui keyboard event is untyped (matches SettingsModal)
-  useKeyboard((e: any) => {
-    const spec = input()
-    if (spec) {
-      if (e.name === "escape") {
-        setInput(null)
-        rerender()
-      } else if (e.name === "return" || e.name === "kpenter") {
-        const collected = [...vals(), buf()]
-        if (stepIdx() < spec.fields.length - 1) {
-          setVals(collected)
-          setStepIdx(stepIdx() + 1)
-          setBuf("")
-          rerender()
-        } else {
-          setInput(null)
-          void Promise.resolve(spec.onComplete(collected)).catch((x) => fail(errMsg(x)))
+  const nav = useListNav<Row>({
+    items: rows,
+    onSelect: (row) => {
+      if (row.kind === "action") row.act()
+      else if (row.kind === "item") openDetail(row.item)
+    },
+    onKey: (e, row) => {
+      if (view() === "detail") {
+        if (e.name === "escape" || e.name === "left") {
+          detailBack()
+          return true
         }
-      } else if (e.name === "backspace") {
-        setBuf((b) => b.slice(0, -1))
-        rerender()
-      } else if (typeof e.sequence === "string" && e.sequence.length === 1 && !e.ctrl && !e.meta) {
-        setBuf((b) => b + e.sequence)
-        rerender()
+        if (e.name === "g" || e.sequence === "g") {
+          const it = current()
+          if (it)
+            void run(lib.download(it.id).then((r) => notice.flash(`Download URL (10 min): ${r.data.download_url}`)))
+          return true
+        }
+        if (e.name === "d" || e.sequence === "d") {
+          const it = current()
+          if (it) p2pDownload(it)
+          return true
+        }
+        if (e.name === "e" || e.sequence === "e") {
+          const it = current()
+          if (it) startEdit(it)
+          return true
+        }
+        if (e.name === "f" || e.sequence === "f") {
+          const it = current()
+          if (it) startFlag(it)
+          return true
+        }
+        if (e.name === "x" || e.sequence === "x") {
+          const it = current()
+          if (it) confirmDelete(it)
+          return true
+        }
+        return true // detail swallows other keys
       }
-      return
-    }
-
-    if (view() === "detail") {
-      if (e.name === "escape" || e.name === "left") {
-        e.preventDefault?.()
-        loadDetailBack()
-      } else if (e.name === "g" || e.sequence === "g") {
-        e.preventDefault?.()
-        const it = current()
-        if (it) void run(lib.download(it.id).then((r) => flash(`Download URL (10 min): ${r.data.download_url}`)))
-      }
-      return
-    }
-
-    const list = rows()
-    if (e.name === "escape") {
-      e.preventDefault?.()
+      void row // unused in list mode
+      return false
+    },
+    onEscape: () => {
       if (view() === "search") void loadFeed()
       else props.onClose()
-      return
-    }
-    if (e.name === "up") {
-      e.preventDefault?.()
-      setCursor((c) => Math.max(0, c - 1))
-      rerender()
-      return
-    }
-    if (e.name === "down") {
-      e.preventDefault?.()
-      setCursor((c) => Math.min(Math.max(0, list.length - 1), c + 1))
-      rerender()
-      return
-    }
-    const row = list[cursor()]
-    if (!row) return
-    const enterKey = e.name === "return" || e.name === "kpenter"
-    if (row.kind === "action" && enterKey) {
-      e.preventDefault?.()
-      row.act()
-    } else if (row.kind === "item" && enterKey) {
-      e.preventDefault?.()
-      openDetail(row.item)
-    }
+    },
   })
+  useModalKeyboard({ form, nav })
 
-  // detail "back" returns to whichever list we came from; simplest is to re-show the feed.
-  function loadDetailBack() {
-    setView("feed")
-    setCursor(0)
-    rerender()
-  }
+  void loadFeed() // load the feed once on open (after `nav` is initialized)
 
-  // ── render ───────────────────────────────────────────────────────────────
-  const WINDOW = 14
-  function windowed<T>(items: T[]): { slice: T[]; offset: number } {
-    if (items.length <= WINDOW) return { slice: items, offset: 0 }
-    const off = Math.min(Math.max(0, cursor() - Math.floor(WINDOW / 2)), items.length - WINDOW)
-    return { slice: items.slice(off, off + WINDOW), offset: off }
-  }
   function label(r: Row): string {
     if (r.kind === "action" || r.kind === "info") return r.label
     return r.item.title
@@ -250,79 +267,60 @@ export function LearningsModal(props: { auth: AuthContext; onClose: () => void }
     if (typeof it.downloads === "number") lines.push(`Downloads: ${it.downloads}`)
     if (typeof it.file_size === "number") lines.push(`Size: ${it.file_size} bytes`)
     if (it.tags?.length) lines.push(`Tags: ${it.tags.join(", ")}`)
+    if (it.torrent_hash) lines.push(`Torrent: ${it.torrent_hash.slice(0, 16)}…`)
+    if (typeof it.seeders === "number") lines.push(`Swarm: ${it.seeders} seeding · ${it.leechers ?? 0} downloading`)
     return lines
   }
 
+  // P2P download via the Go sidecar, streaming live progress into the notice.
+  function p2pDownload(it: LearningItem) {
+    notice.flash("Starting P2P download…")
+    void props.auth.learningsSidecar
+      .download(it.id, (ev) => {
+        if (ev.event === "progress") {
+          notice.flash(`↓ ${Math.round(ev.pct ?? 0)}% · ${ev.peers ?? 0} peers`)
+        } else if (ev.event === "done") {
+          notice.flash(`Downloaded via ${ev.via} → ${ev.path}`)
+        } else if (ev.event === "error") {
+          notice.fail(new Error(ev.message ?? "download failed"))
+        }
+        renderer.requestRender()
+      })
+      .catch((e) => notice.fail(e))
+  }
+
   return (
-    <box flexDirection="column" minWidth={62} gap={0}>
-      <text fg={theme.accent}>{view() === "detail" ? `📚  ${current()?.title ?? ""}` : "📚  Learnings registry"}</text>
-      <box height={1} minHeight={0} />
-
-      <Show when={input()}>
-        {(spec) => (
-          <box flexDirection="column" gap={0}>
-            <text fg={theme.accent}>{spec().title}</text>
-            <For each={vals()}>
-              {(v, i) => (
-                <text fg={theme.textMuted}>
-                  {spec().fields[i()]}: {v}
-                </text>
-              )}
-            </For>
-            <text fg={theme.text}>
-              {spec().fields[stepIdx()]}: {buf()}
-              <span style={{ fg: theme.accent }}>▏</span>
-            </text>
-            <text fg={theme.textMuted}>Enter · Esc cancel</text>
-          </box>
-        )}
+    <ModalFrame
+      title={view() === "detail" ? `📚  ${current()?.title ?? ""}` : "📚  Learnings registry"}
+      footer={
+        view() === "detail"
+          ? "d P2P · g URL · e edit · f report · x delete · Esc back"
+          : "↑/↓ · Enter open · Esc back/close"
+      }
+      notice={notice.notice()}
+      error={notice.err()}
+    >
+      <Show
+        when={form.active()}
+        fallback={
+          <Show
+            when={view() === "detail"}
+            fallback={
+              <Show when={!loading()} fallback={<text fg={theme.textMuted}>Loading…</text>}>
+                <ModalList window={nav.window()} selectable={(r) => r.kind !== "info"} label={label} right={right} />
+              </Show>
+            }
+          >
+            <box flexDirection="column">
+              <For each={detailLines(current() ?? ({} as LearningItem))}>
+                {(line) => <text fg={theme.text}>{line}</text>}
+              </For>
+            </box>
+          </Show>
+        }
+      >
+        <ModalFormView form={form} fields={form.spec()?.fields ?? []} title={form.spec()?.title} />
       </Show>
-
-      <Show when={!input() && view() === "detail"}>
-        <box flexDirection="column">
-          <For each={detailLines(current() ?? ({} as LearningItem))}>
-            {(line) => <text fg={theme.text}>{line}</text>}
-          </For>
-        </box>
-      </Show>
-
-      <Show when={!input() && view() !== "detail"}>
-        <Show when={!loading()} fallback={<text fg={theme.textMuted}>Loading…</text>}>
-          <box flexDirection="column">
-            <For each={windowed(rows()).slice}>
-              {(r, i) => {
-                const idx = () => windowed(rows()).offset + i()
-                const sel = () => idx() === cursor()
-                const actionable = r.kind !== "info"
-                return (
-                  <box
-                    flexDirection="row"
-                    justifyContent="space-between"
-                    gap={2}
-                    backgroundColor={sel() && actionable ? theme.backgroundElement : undefined}
-                  >
-                    <text fg={sel() && actionable ? theme.accent : theme.text}>
-                      {(sel() && actionable ? "› " : "  ") + label(r)}
-                    </text>
-                    <text fg={theme.textMuted}>{right(r)}</text>
-                  </box>
-                )
-              }}
-            </For>
-          </box>
-        </Show>
-      </Show>
-
-      <box height={1} minHeight={0} />
-      <Show when={notice()}>
-        <text fg={theme.accent}>{notice()}</text>
-      </Show>
-      <Show when={err()}>
-        <text fg="#ff5555">{err()}</text>
-      </Show>
-      <text fg={theme.textMuted}>
-        {view() === "detail" ? "g download URL · Esc back" : "↑/↓ · Enter open · Esc back/close"}
-      </text>
-    </box>
+    </ModalFrame>
   )
 }

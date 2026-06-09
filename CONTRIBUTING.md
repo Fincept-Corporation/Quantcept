@@ -89,9 +89,11 @@ a body that is the agent's system prompt. See
 
 ## Authoring a Plugin
 
-Copy `src/extensions/plugins/examples/sample-plugin/`. A plugin is a directory
-with a `plugin.json` manifest and (optionally) a `skills/` directory. The plugin
-loader validates the manifest and loads contributed skills.
+Copy `src/extensions/plugins/examples/quantcept-sample/`. A plugin is a directory
+with a `quantcept-plugin.json` manifest and any of `skills/`, `commands/*.md`,
+`agents/*.md`, `hooks/hooks.json`, and MCP servers (inline or `.mcp.json`). Claude
+Code (`.claude-plugin/plugin.json`) and Gemini (`gemini-extension.json`) plugins
+load through the same adapters. See `src/extensions/plugins/examples/README.md`.
 
 ## Releasing (maintainers)
 

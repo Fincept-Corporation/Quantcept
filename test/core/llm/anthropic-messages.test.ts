@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { AnthropicMessagesAdapter, assembleStreamEvents } from "@core/llm/adapters/anthropic-messages"
+import { AnthropicMessagesAdapter, assembleStreamEvents, consumeAnthropicStream } from "@core/llm/adapters/anthropic-messages"
 
 describe("anthropic-messages adapter", () => {
   test("buildRequest produces /v1/messages payload with headers", () => {
@@ -58,6 +58,47 @@ describe("anthropic-messages adapter", () => {
     ]
     const r = assembleStreamEvents(events, () => {})
     expect(r.blocks).toEqual([{ type: "tool_use", id: "t1", name: "calc", input: {} }])
+  })
+
+  test("consumeAnthropicStream emits text deltas incrementally, not buffered until the stream ends", async () => {
+    const enc = new TextEncoder()
+    const sse = (obj: unknown) => enc.encode(`data: ${JSON.stringify(obj)}\n\n`)
+    const textDelta = (t: string) => ({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: t } })
+
+    const seen: string[] = []
+    // Recorded by the async generator *between* yields: how many onChunk calls had
+    // fired by the time the reader asked for the next chunk. With buffered-at-end
+    // behavior these would all be 0; with true streaming each is the running count.
+    const seenAtPull: number[] = []
+
+    async function* body() {
+      yield sse(textDelta("He"))
+      seenAtPull.push(seen.length) // after "He" was read+processed
+      yield sse(textDelta("llo"))
+      seenAtPull.push(seen.length) // after "llo" was read+processed
+      yield sse({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 2 } })
+    }
+
+    // Drive the generator lazily: each pull advances one yield, so the generator's
+    // between-yield assertions run only after the reader consumed the prior chunk.
+    const gen = body()
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        const { value, done } = await gen.next()
+        if (done) controller.close()
+        else controller.enqueue(value)
+      },
+    })
+    const response = new Response(stream)
+    const result = await consumeAnthropicStream(response, { onChunk: (t) => seen.push(t) })
+
+    expect(seen).toEqual(["He", "llo"])
+    // The decisive assertion: the first delta had already been delivered before the
+    // second chunk was pulled (incremental), and both before the final event.
+    expect(seenAtPull).toEqual([1, 2])
+    expect(result.text).toBe("Hello")
+    expect(result.stopReason).toBe("end_turn")
+    expect(result.outputTokens).toBe(2)
   })
 
   test("buildRequest serializes an image-bearing tool_result into a content array with a base64 image block", () => {

@@ -99,6 +99,7 @@ export function CommandProvider(props: ParentProps) {
       clearMessages: () => hostHooks.clearMessages?.(),
       runSkill: (skillName, args) => hostHooks.runSkill?.(skillName, args),
       navigate: (r) => route.navigate(r),
+      inSession: () => route.data.type === "session",
       setThemeMode: (m) => {
         theme.setMode(m)
         renderer.requestRender()

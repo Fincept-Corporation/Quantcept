@@ -2,7 +2,7 @@ import { createCancelOrderTool, createGetPositionsTool, createPlaceOrderTool } f
 import { PaperBroker } from "@core/broker/paper"
 import type { Config } from "@core/config/schema"
 import { createFinceptTools } from "@core/fincept/tools"
-import { createListJobsTool, createScheduleJobTool } from "@core/jobs/JobControlTool"
+import { registerJobControlTools } from "@core/jobs/JobControlTool"
 import type { JobStore } from "@core/jobs/store"
 import type { Provider } from "@core/llm/types"
 import { McpManager } from "@core/mcp/manager"
@@ -12,6 +12,7 @@ import { checkRisk, type RiskVerdict } from "@core/risk/limits"
 import { OrderOutbox } from "@core/risk/outbox"
 import { projectHash } from "@core/storage/paths"
 import { CalculatorTool } from "@core/tools/builtin/CalculatorTool"
+import { CreateAgentTool } from "@core/tools/builtin/CreateAgentTool"
 import { EditTool } from "@core/tools/builtin/EditTool"
 import { GlobTool } from "@core/tools/builtin/GlobTool"
 import { GrepTool } from "@core/tools/builtin/GrepTool"
@@ -19,6 +20,7 @@ import { ReadTool } from "@core/tools/builtin/ReadTool"
 import { RecallTool } from "@core/tools/builtin/RecallTool"
 import { RememberTool } from "@core/tools/builtin/RememberTool"
 import { ShellTool } from "@core/tools/builtin/ShellTool"
+import { VerifyCodeTool } from "@core/tools/builtin/VerifyCodeTool"
 import { WriteTool } from "@core/tools/builtin/WriteTool"
 import { effectClassOf } from "@core/tools/effects"
 import { BalanceSheetTool } from "@core/tools/finance/BalanceSheetTool"
@@ -32,9 +34,12 @@ import { logger } from "@shared/logger"
 import { createTaskTool } from "./task-tool"
 
 /**
- * The canonical builtin instance-tool set, in the SAME order session.tsx registers them.
- * Computer-use is intentionally excluded — it is vision/desktop-specific and lives behind a
- * TUI/vision provider, so it has no place in the headless engine.
+ * The canonical builtin instance-tool set — the ONE source of truth for the builtin + finance
+ * tools, registered by `registerBuiltinTools` for BOTH the interactive session and the headless
+ * jobs runner. The two then diverge intentionally: the interactive session layers on its own
+ * context-specific tools (computer-use, the live MCP-install tool, plugin MCP servers) that the
+ * headless runner must not have. Computer-use is excluded here — it is vision/desktop-specific
+ * and lives behind a TUI/vision provider, so it has no place in the headless engine.
  */
 const BUILTIN_TOOLS: Tool[] = [
   CalculatorTool,
@@ -43,7 +48,9 @@ const BUILTIN_TOOLS: Tool[] = [
   GrepTool,
   WriteTool,
   EditTool,
+  CreateAgentTool,
   ShellTool,
+  VerifyCodeTool,
   RememberTool,
   RecallTool,
   TickerInfoTool,
@@ -134,10 +141,7 @@ export async function buildAgentRegistry(opts: BuildAgentRegistryOpts): Promise<
   //    read-only build entirely as a runaway guard (the sandbox would block it at execution,
   //    but don't even expose it).
   if (opts.jobStore) {
-    registry.register(createListJobsTool({ store: opts.jobStore, cwd: opts.cwd }))
-    if (!opts.readOnly) {
-      registry.register(createScheduleJobTool({ store: opts.jobStore, cwd: opts.cwd }))
-    }
+    registerJobControlTools(registry, { store: opts.jobStore, cwd: opts.cwd, schedulable: !opts.readOnly })
   }
 
   // 2.5. Trading order tools over a fresh paper spine. Registered regardless of `readOnly`

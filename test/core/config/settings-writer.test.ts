@@ -13,11 +13,11 @@ describe("user settings writer", () => {
     const f = tmp()
     setUserSettingPath("provider.model", "MiniMax-M2.7", f)
     setUserSettingPath("provider.temperature", 0.5, f)
-    setUserSettingPath("fincept.baseUrl", "https://api.fincept.in", f)
+    setUserSettingPath("chat.storage", "local", f)
     const s = getUserSettings(f) as Record<string, Record<string, unknown>>
     expect(s.provider!.model).toBe("MiniMax-M2.7")
     expect(s.provider!.temperature).toBe(0.5)
-    expect(s.fincept!.baseUrl).toBe("https://api.fincept.in")
+    expect(s.chat!.storage).toBe("local")
   })
 
   test("setUserSettingPath preserves sibling keys", () => {

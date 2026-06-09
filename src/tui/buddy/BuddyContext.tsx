@@ -47,6 +47,9 @@ export const { use: useBuddy, provider: BuddyProvider } = createSimpleContext({
     const [muted, setMuted] = createSignal<boolean>(Boolean(kv.get("buddyMuted")))
     const [reaction, setReaction] = createSignal<{ mood: Mood; at: number } | undefined>(undefined)
     const [petAt, setPetAt] = createSignal(0)
+    // "Engaged" flag: pinned true while the agent is generating so the buddy looks curious
+    // (watching what you're doing), then resumes its own personality drift. NOT a task outcome.
+    const [busy, setBusy] = createSignal(false)
 
     const companion = createMemo<Companion>(() => ({ ...bonesFromSeed(seedSig()), ...soul() }))
 
@@ -55,6 +58,8 @@ export const { use: useBuddy, provider: BuddyProvider } = createSimpleContext({
       reaction,
       petAt,
       muted,
+      busy,
+      setBusy: (b: boolean) => setBusy(b),
       react(mood: Mood) {
         setReaction({ mood, at: Date.now() })
       },
@@ -63,7 +68,8 @@ export const { use: useBuddy, provider: BuddyProvider } = createSimpleContext({
       },
       pet() {
         setPetAt(Date.now())
-        setReaction({ mood: "pet", at: Date.now() })
+        // Affection → a brief excited spike (interaction, not a task outcome).
+        setReaction({ mood: "excited", at: Date.now() })
       },
       toggleMute() {
         const next = !muted()

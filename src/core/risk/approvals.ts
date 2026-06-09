@@ -23,7 +23,7 @@
 // engine and the human-in-the-loop drive it.
 
 import type { Database } from "bun:sqlite"
-import { openDb } from "@core/storage/db"
+import { openOwnedDb } from "@core/storage/owned-db"
 
 export interface PendingApproval {
   id: string
@@ -85,13 +85,9 @@ export class PendingApprovalStore {
   private ownsDb: boolean
 
   constructor(opts?: { db?: Database }) {
-    if (opts?.db) {
-      this.db = opts.db
-      this.ownsDb = false
-    } else {
-      this.db = openDb()
-      this.ownsDb = true
-    }
+    const owned = openOwnedDb(opts?.db)
+    this.db = owned.db
+    this.ownsDb = owned.ownsDb
   }
 
   /** Enqueue a new `pending` approval. Payload is canonical-JSON serialized. Returns the new id. */

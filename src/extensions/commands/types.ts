@@ -11,6 +11,8 @@ export interface CommandRunContext {
   clearMessages(): void
   runSkill(skillName: string, args: string): void
   navigate(route: { type: "home" } | { type: "session"; sessionID: string; initialMessage?: string }): void
+  /** True when a chat session is the active route (so submitPrompt reaches a live conversation). */
+  inSession(): boolean
   setThemeMode(mode: "dark" | "light"): void
   setTheme(name: string): boolean
   themeNames(): string[]

@@ -109,7 +109,10 @@ export async function runOpenAIComputerUse(instruction: string, deps: ComputerUs
 
     const prims: Primitive[] = []
     for (const a of actions) {
-      if (deps.onAudit) deps.onAudit(`${new Date().toISOString()}\t${a.type}\t${a.x ?? "-"},${a.y ?? "-"}\t${a.text ?? a.keys?.join("+") ?? "-"}`)
+      if (deps.onAudit)
+        deps.onAudit(
+          `${new Date().toISOString()}\t${a.type}\t${a.x ?? "-"},${a.y ?? "-"}\t${a.text ?? a.keys?.join("+") ?? "-"}`,
+        )
       if (a.type !== "screenshot") prims.push(...oaiActionToPrimitives(a, toPhys))
     }
     if (prims.length) {

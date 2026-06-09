@@ -2,12 +2,15 @@ import { JobStore } from "@core/jobs"
 import type { Job } from "@core/jobs/types"
 import { projectHash } from "@core/storage/paths"
 import { createTextAttributes } from "@opentui/core"
-import { useKeyboard, useRenderer } from "@opentui/solid"
+import { useRenderer } from "@opentui/solid"
 import { useTheme } from "@tui/context/theme"
-import { createSignal, For, onCleanup, Show } from "solid-js"
+import { useListNav, useModalForm, useModalKeyboard, useNotice } from "@tui/ui/modal"
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { formatJobRow, statusColor } from "./jobs-view-format"
 
 const BOLD = createTextAttributes({ bold: true })
+
+type Row = { kind: "new" } | { kind: "job"; job: Job }
 
 export function JobsView(props: { onClose: () => void }) {
   const { theme } = useTheme()
@@ -23,21 +26,20 @@ export function JobsView(props: { onClose: () => void }) {
   })
 
   const [jobs, setJobs] = createSignal<Job[]>([])
-  const [cursor, setCursor] = createSignal(0) // 0 = "＋ New job" row; 1..n = jobs[cursor-1]
-  const [err, setErr] = createSignal<string | undefined>()
-  const [notice, setNotice] = createSignal<string | undefined>()
-  const [adding, setAdding] = createSignal(false)
-  const [buf, setBuf] = createSignal("")
+  const notice = useNotice()
+  const form = useModalForm({ onError: notice.fail })
 
-  const rerender = () => renderer.requestRender()
+  // Row 0 is the synthetic "＋ New job" row; rows 1..n are the jobs (cursor over the combined list).
+  const rows = createMemo<Row[]>(() => [{ kind: "new" }, ...jobs().map((job): Row => ({ kind: "job", job }))])
+
   function refresh() {
     try {
       setJobs(store.listByProject(ph))
-      setErr(undefined)
+      notice.clear()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
+      notice.fail(e)
     }
-    rerender()
+    renderer.requestRender()
   }
   refresh()
 
@@ -47,83 +49,48 @@ export function JobsView(props: { onClose: () => void }) {
     try {
       const id = crypto.randomUUID().slice(0, 8)
       store.create({ id, cwd: process.cwd(), goal: g, readOnly: true })
-      setNotice(`Created job ${id} (read-only). Runs on the next \`quantcept jobs tick\`.`)
+      notice.flash(`Created job ${id} (read-only). Runs on the next \`quantcept jobs tick\`.`)
       refresh()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
-      rerender()
+      notice.fail(e)
     }
   }
-  function deleteAt(i: number) {
-    const j = jobs()[i]
-    if (!j) return
+  function deleteJob(job: Job) {
     try {
-      store.delete(j.id)
-      setNotice(`Deleted job ${j.id}.`)
-      setCursor((c) => Math.max(0, c - 1))
+      store.delete(job.id)
+      notice.flash(`Deleted job ${job.id}.`)
       refresh()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
-      rerender()
+      notice.fail(e)
     }
+  }
+  function startNew() {
+    form.start({ fields: ["goal"], onComplete: ([g]) => createJob(g ?? "") })
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: @opentui keyboard event is untyped (matches SettingsModal)
-  useKeyboard((e: any) => {
-    if (adding()) {
-      if (e.name === "escape") {
-        setAdding(false)
-        setBuf("")
-        rerender()
-      } else if (e.name === "return" || e.name === "kpenter") {
-        const g = buf()
-        setAdding(false)
-        setBuf("")
-        createJob(g)
-      } else if (e.name === "backspace") {
-        setBuf((b) => b.slice(0, -1))
-        rerender()
-      } else if (typeof e.sequence === "string" && e.sequence.length === 1 && !e.ctrl && !e.meta) {
-        setBuf((b) => b + e.sequence)
-        rerender()
+  const nav = useListNav<Row>({
+    items: rows,
+    onSelect: (r) => {
+      if (r.kind === "new") startNew()
+    },
+    onEscape: props.onClose,
+    onKey: (e, r) => {
+      if (e.name === "q") {
+        props.onClose()
+        return true
       }
-      return
-    }
-    if (e.name === "escape" || e.name === "q") {
-      e.preventDefault?.()
-      props.onClose()
-      return
-    }
-    const max = jobs().length
-    if (e.name === "up") {
-      e.preventDefault?.()
-      setCursor((c) => Math.max(0, c - 1))
-      rerender()
-      return
-    }
-    if (e.name === "down") {
-      e.preventDefault?.()
-      setCursor((c) => Math.min(max, c + 1))
-      rerender()
-      return
-    }
-    if (e.name === "return" || e.name === "kpenter") {
-      e.preventDefault?.()
-      if (cursor() === 0) {
-        setAdding(true)
-        setBuf("")
-        setErr(undefined)
-        rerender()
+      if ((e.name === "d" || e.sequence === "d") && r?.kind === "job") {
+        deleteJob(r.job)
+        nav.setCursor(Math.max(0, nav.cursor() - 1))
+        return true
       }
-      return
-    }
-    if ((e.name === "d" || e.sequence === "d") && cursor() > 0) {
-      e.preventDefault?.()
-      deleteAt(cursor() - 1)
-    }
+      return false
+    },
   })
+  useModalKeyboard({ form, nav })
 
   const nowTs = Date.now()
+  const sel = (i: number) => nav.cursor() === i
 
   return (
     <box flexDirection="column" gap={1}>
@@ -131,27 +98,24 @@ export function JobsView(props: { onClose: () => void }) {
         Jobs ({jobs().length})
       </text>
 
-      <Show when={adding()}>
+      <Show when={form.active()}>
         <box flexDirection="column">
           <text fg={theme.accent}>New job — goal</text>
           <text fg={theme.text}>
-            {buf()}
+            {form.state().buf}
             <span style={{ fg: theme.accent }}>▏</span>
           </text>
           <text fg={theme.textMuted}>Enter · Esc cancel</text>
         </box>
       </Show>
 
-      <Show when={!adding()}>
+      <Show when={!form.active()}>
         <box flexDirection="column">
-          <text
-            fg={cursor() === 0 ? theme.accent : theme.text}
-            bg={cursor() === 0 ? theme.backgroundElement : undefined}
-          >
-            {(cursor() === 0 ? "› " : "  ") + "＋ New job"}
+          <text fg={sel(0) ? theme.accent : theme.text} bg={sel(0) ? theme.backgroundElement : undefined}>
+            {(sel(0) ? "› " : "  ") + "＋ New job"}
           </text>
-          <Show when={err()}>
-            <text fg="#ef4444">Failed: {err()}</text>
+          <Show when={notice.err()}>
+            <text fg="#ef4444">Failed: {notice.err()}</text>
           </Show>
           <Show when={jobs().length > 0}>
             <box flexDirection="row" gap={1}>
@@ -163,11 +127,11 @@ export function JobsView(props: { onClose: () => void }) {
             <For each={jobs()}>
               {(j, i) => {
                 const row = formatJobRow(j, nowTs)
-                const sel = () => cursor() === i() + 1
+                const selected = () => sel(i() + 1)
                 return (
-                  <box flexDirection="row" gap={1} backgroundColor={sel() ? theme.backgroundElement : undefined}>
+                  <box flexDirection="row" gap={1} backgroundColor={selected() ? theme.backgroundElement : undefined}>
                     <text fg={statusColor(row.status.split(":")[0]!)}>
-                      {(sel() ? "› " : "  ") + row.status.padEnd(14)}
+                      {(selected() ? "› " : "  ") + row.status.padEnd(14)}
                     </text>
                     <text fg={theme.text}>{row.turns.padEnd(7)}</text>
                     <text fg={theme.text}>{row.next.padEnd(7)}</text>
@@ -180,8 +144,8 @@ export function JobsView(props: { onClose: () => void }) {
         </box>
       </Show>
 
-      <Show when={notice()}>
-        <text fg={theme.accent}>{notice()}</text>
+      <Show when={notice.notice()}>
+        <text fg={theme.accent}>{notice.notice()}</text>
       </Show>
       <text fg={theme.textMuted}>↑/↓ move · Enter new job · d delete · Esc close</text>
     </box>

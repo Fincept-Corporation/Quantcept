@@ -1,5 +1,6 @@
 import { projectHash } from "@core/storage/paths"
 import { buildTool, type Tool } from "@core/tools/Tool"
+import { ellipsize } from "@shared/format"
 import { z } from "zod/v4"
 import type { JobStore } from "./store"
 
@@ -11,11 +12,6 @@ import type { JobStore } from "./store"
  * Both are project-scoped via `projectHash(cwd)` — an agent only ever sees/affects jobs
  * for the workspace it is running in.
  */
-
-const truncate = (s: string, n: number): string => {
-  const oneLine = s.replace(/\s+/g, " ").trim()
-  return oneLine.length <= n ? oneLine : `${oneLine.slice(0, n - 1)}…`
-}
 
 /** Read-only: list this project's jobs as a compact summary the model can reason over. */
 export function createListJobsTool(deps: { store: JobStore; cwd: string }): Tool {
@@ -36,7 +32,7 @@ export function createListJobsTool(deps: { store: JobStore; cwd: string }): Tool
         status: j.status,
         turns: `${j.turnsUsed}/${j.maxTurns}`,
         nextRunAt: j.nextRunAt !== undefined ? new Date(j.nextRunAt).toISOString() : null,
-        goal: truncate(j.goal, 120),
+        goal: ellipsize(j.goal, 120),
       }))
       return { output: JSON.stringify(rows, null, 2), title: `list_jobs (${jobs.length})` }
     },
@@ -77,4 +73,20 @@ export function createScheduleJobTool(deps: { store: JobStore; cwd: string }): T
       return { output: `Scheduled job ${id}.${note}`, title: `schedule_job ${id}` }
     },
   })
+}
+
+/**
+ * Register the job-control tools into a registry: `list_jobs` (read) always; `schedule_job`
+ * (write) only when `schedulable` (default true) — the autonomous-jobs runner passes
+ * `schedulable: false` in a read-only build so a sandboxed job can't schedule more work.
+ * Shared by the interactive session and `buildAgentRegistry` so the pair can't drift.
+ */
+export function registerJobControlTools(
+  registry: { register(tool: Tool): void },
+  opts: { store: JobStore; cwd: string; schedulable?: boolean },
+): void {
+  registry.register(createListJobsTool({ store: opts.store, cwd: opts.cwd }))
+  if (opts.schedulable !== false) {
+    registry.register(createScheduleJobTool({ store: opts.store, cwd: opts.cwd }))
+  }
 }

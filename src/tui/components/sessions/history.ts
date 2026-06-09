@@ -39,6 +39,18 @@ export function localSummaries(rows: SessionRow[], currentId?: string): SessionS
     }))
 }
 
+/** Soft-delete a cloud conversation (DELETE /v1/chat/conversations/:id). Returns success. */
+export async function deleteCloudConversation(id: string): Promise<boolean> {
+  const chat = makeChat()
+  if (!chat) return false
+  try {
+    await chat.deleteConversation(id)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Recent cloud conversations → summaries. Empty on signed-out / network failure. */
 export async function cloudSummaries(currentId?: string): Promise<SessionSummary[]> {
   const chat = makeChat()

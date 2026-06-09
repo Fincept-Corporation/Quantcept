@@ -29,11 +29,8 @@ const num = (n: number | undefined) => (n === undefined ? "" : String(n))
 export function configSections(): ConfigSection[] {
   const c = loadConfig()
   return [
-    {
-      key: "connection",
-      label: "Connection",
-      fields: [{ label: "Fincept base URL", kind: "string", path: "fincept.baseUrl", get: () => c.fincept.baseUrl }],
-    },
+    // The Fincept base URL is fixed to the hosted backend (not user-configurable), so there is
+    // no "Connection" section — see applyFinceptHost in core/config/load.
     {
       key: "chat",
       label: "Chat",

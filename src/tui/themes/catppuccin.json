@@ -107,6 +107,16 @@
     "syntaxNumber": { "dark": "darkPeach", "light": "lightPeach" },
     "syntaxType": { "dark": "darkYellow", "light": "lightYellow" },
     "syntaxOperator": { "dark": "darkSky", "light": "lightSky" },
-    "syntaxPunctuation": { "dark": "darkText", "light": "lightText" }
+    "syntaxPunctuation": { "dark": "darkText", "light": "lightText" },
+    "moodContent": { "dark": "darkGreen", "light": "lightGreen" },
+    "moodCurious": { "dark": "darkSky", "light": "lightSky" },
+    "moodPlayful": { "dark": "darkMauve", "light": "lightMauve" },
+    "moodExcited": { "dark": "darkYellow", "light": "lightYellow" },
+    "moodSleepy": { "dark": "darkOverlay1", "light": "lightOverlay1" },
+    "moodDreamy": { "dark": "darkLavender", "light": "lightLavender" },
+    "moodSmug": { "dark": "darkPeach", "light": "lightPeach" },
+    "moodBored": { "dark": "darkOverlay0", "light": "lightOverlay0" },
+    "moodGrumpy": { "dark": "darkRed", "light": "lightRed" },
+    "moodProud": { "dark": "darkPink", "light": "lightPink" }
   }
 }

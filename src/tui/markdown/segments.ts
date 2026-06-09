@@ -13,9 +13,7 @@
  * has finished (no more tokens coming) an unterminated trailing fence is treated
  * as closed and rendered, since some models end a turn without a closing ```.
  */
-export type DiagramSegment =
-  | { kind: "md"; text: string }
-  | { kind: "diagram"; body: string; closed: boolean }
+export type DiagramSegment = { kind: "md"; text: string } | { kind: "diagram"; body: string; closed: boolean }
 
 export interface SplitOptions {
   /** True once the assistant turn is complete; closes a dangling fence so it renders. */

@@ -1,4 +1,4 @@
-import type { FinceptClient } from "./client"
+import { FinceptResource } from "./resource"
 
 export interface CreditEndpoint {
   method: string
@@ -70,12 +70,7 @@ export interface CreateOrderResult {
  * payment completes in a web checkout — createOrder returns the session id /
  * order the desktop hands off to the browser.
  */
-export class FinceptBilling {
-  constructor(
-    private readonly client: FinceptClient,
-    private readonly token: () => string | undefined,
-  ) {}
-
+export class FinceptBilling extends FinceptResource {
   /** Public per-endpoint credit cost map. */
   creditsMap() {
     return this.client.request<{ modules: CreditModule[] }>({ method: "GET", path: "/v1/credits/endpoints" })

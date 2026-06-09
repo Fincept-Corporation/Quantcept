@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite"
-import { readdirSync } from "node:fs"
+import { readdirSync, rmSync } from "node:fs"
 import { openDb } from "./db"
 import { appendJsonl, readJsonl } from "./jsonl"
 import { dataDir, projectHash, sessionFile, sessionsDir } from "./paths"
@@ -125,6 +125,26 @@ export class SessionStore {
   /** Test/recovery helper: delete an index row (transcript stays on disk). */
   dropIndexRow(sessionId: string): void {
     this.db.query("DELETE FROM session WHERE id = ?").run(sessionId)
+  }
+
+  /**
+   * Permanently delete a session: its on-disk transcript AND its index row. Removing the
+   * transcript (not just the index row) is what stops `rebuildIndex` from resurrecting it.
+   */
+  deleteSession(sessionId: string): void {
+    const row = this.db.query("SELECT project_hash FROM session WHERE id = ?").get(sessionId) as
+      | { project_hash: string }
+      | undefined
+    const ph = row?.project_hash ?? this.hashById.get(sessionId)
+    if (ph) {
+      try {
+        rmSync(sessionFile(ph, sessionId), { force: true })
+      } catch {
+        // best-effort — the index-row delete below still removes it from the picker
+      }
+    }
+    this.db.query("DELETE FROM session WHERE id = ?").run(sessionId)
+    this.hashById.delete(sessionId)
   }
 
   /** Rebuild the SQLite index from every transcript on disk. */

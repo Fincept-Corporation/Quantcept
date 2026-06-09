@@ -1,9 +1,18 @@
 import type { PluginContributions, PluginManager } from "@core/plugins/manager"
 import type { MarketplacePluginEntry } from "@core/plugins/marketplace"
 import type { InstalledPlugin } from "@core/plugins/state"
-import { useKeyboard, useRenderer } from "@opentui/solid"
+import { useRenderer } from "@opentui/solid"
 import { useTheme } from "@tui/context/theme"
-import { createMemo, createSignal, For, Show } from "solid-js"
+import {
+  ModalFormView,
+  ModalFrame,
+  ModalList,
+  useListNav,
+  useModalForm,
+  useModalKeyboard,
+  useNotice,
+} from "@tui/ui/modal"
+import { createMemo, createSignal, Show } from "solid-js"
 
 type View = "menu" | "installed" | "marketplaces" | "hooks" | `browse:${string}`
 
@@ -34,30 +43,13 @@ export function PluginsModal(props: {
   const mgr = props.manager
 
   const [view, setView] = createSignal<View>("menu")
-  const [cursor, setCursor] = createSignal(0)
   const [tick, setTick] = createSignal(0) // bump to re-read manager state after a mutation
-  const [notice, setNotice] = createSignal<string | undefined>()
-  const [err, setErr] = createSignal<string | undefined>()
   const [loading, setLoading] = createSignal(false)
   const [catalog, setCatalog] = createSignal<MarketplacePluginEntry[] | null>(null)
-
-  // add-marketplace text input
-  const [adding, setAdding] = createSignal(false)
-  const [buf, setBuf] = createSignal("")
-
-  const rerender = () => renderer.requestRender()
-  const flash = (m: string) => {
-    setNotice(m)
-    setErr(undefined)
-    rerender()
-  }
-  const fail = (m: string) => {
-    setErr(m)
-    setNotice(undefined)
-    rerender()
-  }
+  const notice = useNotice()
+  const form = useModalForm({ onError: notice.fail })
   const bump = () => setTick((n) => n + 1)
-  const run = (p: Promise<unknown> | unknown) => Promise.resolve(p).catch((e) => fail((e as Error).message))
+  const run = (p: Promise<unknown> | unknown) => Promise.resolve(p).catch((e) => notice.fail(e))
 
   // Per-plugin contribution counts (only enabled+loaded plugins are in contributions).
   const counts = createMemo(() => {
@@ -92,7 +84,6 @@ export function PluginsModal(props: {
         ? list.map((h) => ({ kind: "hook", label: h.source, right: `${h.events.join(", ")} (${h.count})` }) as PRow)
         : [{ kind: "info", label: "No active hooks." }]
     }
-    // browse:<marketplace>
     const cat = catalog()
     if (cat == null) return []
     return cat.length
@@ -103,25 +94,25 @@ export function PluginsModal(props: {
   async function loadCatalog(name: string) {
     setLoading(true)
     setCatalog(null)
-    setErr(undefined)
+    notice.clear()
     try {
       const mp = await mgr.browseMarketplace(name)
       setCatalog(mp.plugins)
     } catch (e) {
       setCatalog([])
-      fail((e as Error).message)
+      notice.fail(e)
     } finally {
       setLoading(false)
-      rerender()
+      renderer.requestRender()
     }
   }
 
   function enter(key: View) {
     setView(key)
-    setCursor(0)
-    setNotice(undefined)
-    setErr(undefined)
+    nav.setCursor(0)
+    notice.clear()
     if (key.startsWith("browse:")) void loadCatalog(key.slice(7))
+    renderer.requestRender()
   }
 
   function back() {
@@ -129,145 +120,88 @@ export function PluginsModal(props: {
     if (v.startsWith("browse:")) {
       setCatalog(null)
       enter("marketplaces")
-    } else if (v === "menu") props.onClose()
-    else {
+    } else if (v === "menu") {
+      props.onClose()
+    } else {
       setView("menu")
-      setCursor(0)
+      nav.setCursor(0)
+      renderer.requestRender()
     }
-    rerender()
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: @opentui keyboard event is untyped (matches SettingsModal)
-  useKeyboard((e: any) => {
-    if (adding()) {
-      if (e.name === "escape") {
-        setAdding(false)
-        setBuf("")
-        rerender()
-      } else if (e.name === "return" || e.name === "kpenter") {
-        const src = buf().trim()
-        setAdding(false)
-        setBuf("")
-        if (src)
-          void run(
-            mgr.addMarketplace(src).then((mp) => {
-              bump()
-              flash(`Added "${mp.name}" (${mp.plugins.length} plugin(s)).`)
-            }),
-          )
-      } else if (e.name === "backspace") {
-        setBuf((b) => b.slice(0, -1))
-        rerender()
-      } else if (typeof e.sequence === "string" && e.sequence.length === 1 && !e.ctrl && !e.meta) {
-        setBuf((b) => b + e.sequence)
-        rerender()
-      }
-      return
-    }
+  function openAdd() {
+    form.start({
+      fields: ["source"],
+      onComplete: async ([src]) => {
+        const s = (src ?? "").trim()
+        if (!s) return
+        const mp = await mgr.addMarketplace(s)
+        bump()
+        notice.flash(`Added "${mp.name}" (${mp.plugins.length} plugin(s)).`)
+      },
+    })
+  }
 
-    const list = rows()
-    if (e.name === "escape" || (e.name === "left" && view() !== "menu")) {
-      e.preventDefault?.()
-      back()
-      return
-    }
-    if (e.name === "up") {
-      e.preventDefault?.()
-      setCursor((c) => Math.max(0, c - 1))
-      rerender()
-      return
-    }
-    if (e.name === "down") {
-      e.preventDefault?.()
-      setCursor((c) => Math.min(Math.max(0, list.length - 1), c + 1))
-      rerender()
-      return
-    }
-    const row = list[cursor()]
-    if (!row) return
-    const enterKey = e.name === "return" || e.name === "kpenter"
-    const key = (ch: string) => e.name === ch || e.sequence === ch
-
-    if (row.kind === "menu") {
-      if (enterKey) {
-        e.preventDefault?.()
+  const nav = useListNav<PRow>({
+    items: rows,
+    onSelect: (row) => {
+      if (row.kind === "menu") {
         enter(row.key)
-        rerender()
-      }
-      return
-    }
-    if (row.kind === "installed") {
-      if (enterKey) {
-        e.preventDefault?.()
+      } else if (row.kind === "installed") {
         const p = row.plugin
         if (p.enabled) mgr.disable(p.name)
         else mgr.enable(p.name)
         props.reload()
         bump()
-        flash(`${p.enabled ? "Disabled" : "Enabled"} ${p.name}.`)
-      } else if (key("u")) {
-        e.preventDefault?.()
-        const name = row.plugin.name
-        void run(
-          mgr.uninstall(name).then(() => {
-            props.reload()
-            setCursor((c) => Math.max(0, c - 1))
-            bump()
-            flash(`Uninstalled ${name}.`)
-          }),
-        )
-      }
-      return
-    }
-    if (row.kind === "mp-add") {
-      if (enterKey) {
-        e.preventDefault?.()
-        setAdding(true)
-        setBuf("")
-        setErr(undefined)
-        rerender()
-      }
-      return
-    }
-    if (row.kind === "mp") {
-      if (enterKey) {
-        e.preventDefault?.()
+        notice.flash(`${p.enabled ? "Disabled" : "Enabled"} ${p.name}.`)
+      } else if (row.kind === "mp-add") {
+        openAdd()
+      } else if (row.kind === "mp") {
         enter(`browse:${row.name}`)
-        rerender()
-      } else if (key("r")) {
-        e.preventDefault?.()
-        mgr.removeMarketplace(row.name)
-        setCursor((c) => Math.max(0, c - 1))
-        bump()
-        flash(`Removed marketplace ${row.name}.`)
-      }
-      return
-    }
-    if (row.kind === "catalog") {
-      if (enterKey) {
-        e.preventDefault?.()
+      } else if (row.kind === "catalog") {
         const mpName = view().slice(7)
         const spec = `${row.entry.name}@${mpName}`
-        flash(`Installing ${row.entry.name}…`)
+        notice.flash(`Installing ${row.entry.name}…`)
         void run(
           mgr.install(spec).then((p) => {
             props.reload()
             bump()
-            flash(`Installed "${p.name}". Skills/commands load now; MCP on next session.`)
+            notice.flash(`Installed "${p.name}". Skills/commands load now; MCP on next session.`)
           }),
         )
       }
-      return
-    }
+    },
+    onKey: (e, row) => {
+      if (e.name === "left" && view() !== "menu") {
+        back()
+        return true
+      }
+      const isKey = (ch: string) => e.name === ch || e.sequence === ch
+      if (row?.kind === "installed" && isKey("u")) {
+        const name = row.plugin.name
+        void run(
+          mgr.uninstall(name).then(() => {
+            props.reload()
+            nav.setCursor(Math.max(0, nav.cursor() - 1))
+            bump()
+            notice.flash(`Uninstalled ${name}.`)
+          }),
+        )
+        return true
+      }
+      if (row?.kind === "mp" && isKey("r")) {
+        mgr.removeMarketplace(row.name)
+        nav.setCursor(Math.max(0, nav.cursor() - 1))
+        bump()
+        notice.flash(`Removed marketplace ${row.name}.`)
+        return true
+      }
+      return false
+    },
+    onEscape: back,
   })
+  useModalKeyboard({ form, nav })
 
-  // ── render ───────────────────────────────────────────────────────────────
-  const WINDOW = 14
-  function windowed(items: PRow[]): { slice: PRow[]; offset: number } {
-    if (items.length <= WINDOW) return { slice: items, offset: 0 }
-    const off = Math.min(Math.max(0, cursor() - Math.floor(WINDOW / 2)), items.length - WINDOW)
-    return { slice: items.slice(off, off + WINDOW), offset: off }
-  }
   function rowLabel(r: PRow): string {
     if (r.kind === "menu") return r.label
     if (r.kind === "installed") return r.plugin.name
@@ -297,60 +231,29 @@ export function PluginsModal(props: {
   }
 
   return (
-    <box flexDirection="column" minWidth={62} gap={0}>
-      <text fg={theme.accent}>{title()}</text>
-      <box height={1} minHeight={0} />
-
-      <Show when={adding()}>
-        <box flexDirection="column" gap={0}>
-          <text fg={theme.accent}>Add marketplace — source (url · owner/repo · npm:pkg · local path)</text>
-          <text fg={theme.text}>
-            {buf()}
-            <span style={{ fg: theme.accent }}>▏</span>
-          </text>
-          <text fg={theme.textMuted}>Enter · Esc cancel</text>
-        </box>
-      </Show>
-
-      <Show when={!adding()}>
-        <Show when={!loading()} fallback={<text fg={theme.textMuted}>Loading…</text>}>
-          <box flexDirection="column">
+    <ModalFrame title={title()} footer={footer()} notice={notice.notice()} error={notice.err()}>
+      <Show
+        when={form.active()}
+        fallback={
+          <Show when={!loading()} fallback={<text fg={theme.textMuted}>Loading…</text>}>
             <Show when={rows().length > 0} fallback={<text fg={theme.textMuted}>Nothing here.</text>}>
-              <For each={windowed(rows()).slice}>
-                {(row, i) => {
-                  const idx = () => windowed(rows()).offset + i()
-                  const sel = () => idx() === cursor()
-                  const actionable = row.kind !== "info"
-                  const marker = !actionable ? "  " : sel() ? "› " : "  "
-                  return (
-                    <box
-                      flexDirection="row"
-                      justifyContent="space-between"
-                      gap={2}
-                      backgroundColor={sel() && actionable ? theme.backgroundElement : undefined}
-                    >
-                      <text fg={sel() && actionable ? theme.accent : theme.text}>
-                        {marker}
-                        {rowLabel(row)}
-                      </text>
-                      <text fg={theme.textMuted}>{rowRight(row)}</text>
-                    </box>
-                  )
-                }}
-              </For>
+              <ModalList
+                window={nav.window()}
+                selectable={(r) => r.kind !== "info"}
+                label={rowLabel}
+                right={rowRight}
+              />
             </Show>
-          </box>
-        </Show>
+          </Show>
+        }
+      >
+        <ModalFormView
+          form={form}
+          fields={form.spec()?.fields ?? []}
+          title="Add marketplace"
+          footer="Enter · Esc cancel — url · owner/repo · npm:pkg · local path"
+        />
       </Show>
-
-      <box height={1} minHeight={0} />
-      <Show when={notice()}>
-        <text fg={theme.accent}>{notice()}</text>
-      </Show>
-      <Show when={err()}>
-        <text fg="#ff5555">{err()}</text>
-      </Show>
-      <text fg={theme.textMuted}>{footer()}</text>
-    </box>
+    </ModalFrame>
   )
 }

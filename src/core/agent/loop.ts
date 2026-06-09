@@ -35,6 +35,8 @@ export interface AgentTurnInput {
     track(label: string): Promise<string | null>
     revertTo(treeHash: string): Promise<void>
   }
+  /** Abort signal — aborting stops the loop at the next iteration boundary. */
+  abort?: AbortSignal
   /** Budget gate forwarded to the executor for per-tool-call enforcement. */
   budget?: {
     check(): { ok: boolean }
@@ -73,6 +75,7 @@ export async function runAgentTurn(input: AgentTurnInput, handlers?: StreamHandl
 
   const maxIterations = input.maxIterations ?? MAX_ITERATIONS
   for (let i = 0; i < maxIterations; i++) {
+    if (input.abort?.aborted) break
     // Route image-bearing turns to the vision provider when the primary model can't see.
     const provider = input.visionProvider && messagesContainImage(messages) ? input.visionProvider : input.provider
     const res = await provider.chat({ messages, system: input.system, tools }, handlers)
@@ -113,7 +116,7 @@ export async function runAgentTurn(input: AgentTurnInput, handlers?: StreamHandl
       const r = await executeTool(tool, use.input, {
         mode: input.mode,
         cwd: input.cwd,
-        abort: new AbortController().signal,
+        abort: input.abort ?? new AbortController().signal,
         ask: input.ask,
         rules: input.rules,
         hooks: input.hooks,

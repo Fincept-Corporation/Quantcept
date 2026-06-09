@@ -13,7 +13,8 @@
 // approval flow) drive it; the model only ever sees derived, read-only numbers.
 
 import type { Database } from "bun:sqlite"
-import { openDb } from "@core/storage/db"
+import { openOwnedDb } from "@core/storage/owned-db"
+import { dayKey } from "@shared/time"
 
 export interface LedgerPosition {
   symbol: string
@@ -42,11 +43,6 @@ interface PositionRow {
 const DEFAULT_ACCOUNT_ID = "default"
 const DEFAULT_STARTING_CASH = 100_000
 
-/** UTC calendar-day key (YYYY-MM-DD) used to bucket realized P&L. */
-function dayKey(now: number): string {
-  return new Date(now).toISOString().slice(0, 10)
-}
-
 export class PositionLedger {
   private db: Database
   private ownsDb: boolean
@@ -54,13 +50,9 @@ export class PositionLedger {
 
   constructor(opts?: { accountId?: string; startingCash?: number; db?: Database }) {
     this.accountId = opts?.accountId ?? DEFAULT_ACCOUNT_ID
-    if (opts?.db) {
-      this.db = opts.db
-      this.ownsDb = false
-    } else {
-      this.db = openDb()
-      this.ownsDb = true
-    }
+    const owned = openOwnedDb(opts?.db)
+    this.db = owned.db
+    this.ownsDb = owned.ownsDb
     this.seed(opts?.startingCash ?? DEFAULT_STARTING_CASH)
   }
 

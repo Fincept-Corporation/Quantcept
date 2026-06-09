@@ -214,6 +214,16 @@
     "syntaxPunctuation": {
       "dark": "foreground",
       "light": "#282a36"
-    }
+    },
+    "moodContent": { "dark": "green", "light": "green" },
+    "moodCurious": { "dark": "cyan", "light": "cyan" },
+    "moodPlayful": { "dark": "purple", "light": "purple" },
+    "moodExcited": { "dark": "yellow", "light": "yellow" },
+    "moodSleepy": { "dark": "comment", "light": "comment" },
+    "moodDreamy": { "dark": "pink", "light": "pink" },
+    "moodSmug": { "dark": "orange", "light": "orange" },
+    "moodBored": { "dark": "comment", "light": "comment" },
+    "moodGrumpy": { "dark": "red", "light": "red" },
+    "moodProud": { "dark": "#ffcf4d", "light": "#b8860b" }
   }
 }

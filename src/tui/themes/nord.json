@@ -218,6 +218,16 @@
     "syntaxPunctuation": {
       "dark": "nord4",
       "light": "nord0"
-    }
+    },
+    "moodContent": { "dark": "nord14", "light": "nord14" },
+    "moodCurious": { "dark": "nord8", "light": "nord10" },
+    "moodPlayful": { "dark": "nord15", "light": "nord15" },
+    "moodExcited": { "dark": "nord13", "light": "nord13" },
+    "moodSleepy": { "dark": "#8B95A7", "light": "nord3" },
+    "moodDreamy": { "dark": "nord9", "light": "nord9" },
+    "moodSmug": { "dark": "nord12", "light": "nord12" },
+    "moodBored": { "dark": "nord3", "light": "nord3" },
+    "moodGrumpy": { "dark": "nord11", "light": "nord11" },
+    "moodProud": { "dark": "nord7", "light": "nord7" }
   }
 }

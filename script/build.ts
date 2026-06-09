@@ -2,6 +2,7 @@
 import fs from "fs"
 import path from "path"
 import { createSolidTransformPlugin } from "@opentui/solid/bun-plugin"
+import { bundleLearningsBinary } from "./build-learnings"
 
 const dir = path.resolve(import.meta.dir, "..")
 process.chdir(dir)
@@ -32,7 +33,8 @@ for (const t of targets) {
   const name = `quantcept-${t.os === "win32" ? "windows" : t.os}-${t.arch}`
   const bunfsRoot = t.os === "win32" ? "B:/~BUN/root/" : "/$bunfs/root/"
   const workerRel = path.relative(dir, parserWorker).replaceAll("\\", "/")
-  fs.mkdirSync(`dist/${name}/bin`, { recursive: true })
+  const binDir = `dist/${name}/bin`
+  fs.mkdirSync(binDir, { recursive: true })
 
   await Bun.build({
     conditions: ["browser"],
@@ -73,6 +75,11 @@ for (const t of targets) {
     }
     console.log(`Tree-sitter binary smoke passed for ${name}`)
   }
+
+  // Bundle the Go `learnings` BitTorrent CLI next to the compiled binary so P2P learnings work out
+  // of the box. Done AFTER Bun.build because the compile step rewrites bin/ (best-effort — falls
+  // back to HTTP at runtime if the finceptgo source / Go toolchain isn't available).
+  await bundleLearningsBinary({ os: t.os, arch: t.arch, binDir })
 
   fs.writeFileSync(
     `dist/${name}/package.json`,

@@ -1,0 +1,88 @@
+name: Release
+
+# Publishes Quantcept to npm: the per-platform compiled binaries as their own
+# packages (quantcept-<os>-<arch>), then the root launcher package with matching
+# optionalDependencies. Bun cross-compiles all four targets on one Linux runner.
+#
+# Trigger by pushing a tag `vX.Y.Z` (which must match package.json "version"), or
+# run manually via "Run workflow". Requires repo secret NPM_TOKEN (an npm automation
+# token with publish rights to `quantcept` and the `quantcept-*` platform packages).
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      # Node + npm for publishing (writes ~/.npmrc auth from NODE_AUTH_TOKEN).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # On a tag push, the tag must match package.json "version" (vX.Y.Z -> X.Y.Z).
+      - name: Verify tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME ($TAG) does not match package.json version ($PKG)."
+            exit 1
+          fi
+          echo "Releasing version $PKG"
+
+      # Quality gates before we publish anything immutable.
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Lint
+        run: bun run lint
+      - name: Test
+        run: bun test
+
+      # Cross-compile all four targets (no --single). Produces:
+      #   dist/quantcept-<os>-<arch>/{package.json, bin/quantcept[.exe]}
+      - name: Build all platform binaries
+        run: bun run script/build.ts
+
+      # Publish each platform package first, so the root's optionalDependencies resolve.
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          for dir in dist/quantcept-*/; do
+            name="$(node -p "require('./${dir}package.json').name")"
+            ver="$(node -p "require('./${dir}package.json').version")"
+            echo "Publishing ${name}@${ver}"
+            npm publish "$dir" --access public
+          done
+
+      # Pin matching optionalDependencies onto the root package, then publish it.
+      - name: Publish root launcher package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          for dir in dist/quantcept-*/; do
+            name="$(node -p "require('./${dir}package.json').name")"
+            npm pkg set "optionalDependencies.${name}=${VERSION}"
+          done
+          npm publish --access public

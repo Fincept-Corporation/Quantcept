@@ -118,7 +118,11 @@ export function createComputerUseTool(deps: ComputerUseDeps) {
 
 /** Resolve the action's target to PHYSICAL pixels: a `mark` looks up its grid center directly;
  * otherwise the model's screenshot-space coordinate is scaled up. */
-function resolveCoords(input: ComputerInput, scaleFactor: number, marks: Map<number, [number, number]>): ComputerAction {
+function resolveCoords(
+  input: ComputerInput,
+  scaleFactor: number,
+  marks: Map<number, [number, number]>,
+): ComputerAction {
   const out: ComputerAction = { ...input }
   const marked = input.mark != null ? marks.get(input.mark) : undefined
   if (marked) out.coordinate = marked

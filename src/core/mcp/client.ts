@@ -6,6 +6,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { ProviderError } from "@shared/errors"
 import { logger } from "@shared/logger"
+import { VERSION } from "@shared/version"
 import type { McpHttpServer, McpServer, McpStdioServer } from "./config"
 import { httpTransportOptions } from "./headers"
 import type { McpToolDef } from "./types"
@@ -81,7 +82,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 }
 
 const defaultMakeClient: MakeClient = () => {
-  const c = new Client({ name: "quantcept", version: "0.0.0" })
+  const c = new Client({ name: "quantcept", version: VERSION })
   return c as unknown as LowLevelClient
 }
 

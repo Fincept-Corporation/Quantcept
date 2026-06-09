@@ -85,8 +85,47 @@ function bestFieldScore(query: string, command: Command): number | null {
   return best
 }
 
+// Curated category priority for the empty-query view (bare "/" popover and the
+// freshly-opened palette). High-value verbs surface first; anything whose
+// category isn't listed here sinks below the curated groups.
+const CATEGORY_ORDER = [
+  "Session",
+  "Plugins",
+  "Skills",
+  "Agents",
+  "MCP",
+  "Memory",
+  "Trading",
+  "Jobs",
+  "View",
+  "Setup",
+  "Account",
+  "Cloud",
+  "Learnings",
+  "Buddy",
+  "General",
+]
+
+function categoryRank(category: string | undefined): number {
+  const i = CATEGORY_ORDER.indexOf(category ?? "")
+  return i === -1 ? CATEGORY_ORDER.length : i
+}
+
+/**
+ * Default ordering when there is no query: group by curated category priority,
+ * then alphabetical by name within each group. Stable and predictable, so the
+ * most useful commands lead the list instead of raw registration order.
+ */
+function defaultSort(commands: readonly Command[]): Command[] {
+  return [...commands].sort((a, b) => {
+    const byCategory = categoryRank(a.category) - categoryRank(b.category)
+    if (byCategory !== 0) return byCategory
+    return a.name.localeCompare(b.name)
+  })
+}
+
 export function rankCommands(query: string, commands: readonly Command[]): Command[] {
-  if (query.length === 0) return [...commands]
+  if (query.length === 0) return defaultSort(commands)
   const scored: Array<{ command: Command; score: number }> = []
   for (const command of commands) {
     const score = bestFieldScore(query, command)

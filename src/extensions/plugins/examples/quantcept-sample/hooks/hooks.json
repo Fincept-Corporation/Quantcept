@@ -2,9 +2,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "hooks": [
-          { "type": "command", "command": "echo quantcept-sample SessionStart hook fired" }
-        ]
+        "hooks": [{ "type": "command", "command": "echo quantcept-sample SessionStart hook fired" }]
       }
     ]
   }

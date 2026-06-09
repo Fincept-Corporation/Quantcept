@@ -120,8 +120,8 @@ export function spriteFrameCount(species: Species): number {
   return BODIES[species].length
 }
 
-export function renderFace(bones: CompanionBones): string {
-  const e = bones.eye
+export function renderFace(bones: CompanionBones, eyeOverride?: string): string {
+  const e = eyeOverride ?? bones.eye
   switch (bones.species) {
     case "duck":
     case "goose":

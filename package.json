@@ -7,7 +7,13 @@
   "bin": {
     "quantcept": "./bin/quantcept"
   },
-  "files": ["bin", "script/postinstall.mjs", "dist"],
+  "files": ["bin", "script/postinstall.mjs"],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "keywords": [
     "finance",
     "terminal",

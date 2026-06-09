@@ -1,5 +1,4 @@
-import { FinceptAuthError } from "@shared/errors"
-import type { FinceptClient } from "./client"
+import { FinceptResource } from "./resource"
 import type {
   Account,
   LoginEntry,
@@ -17,86 +16,100 @@ import type {
  * Bound to a live token getter (the AuthProvider supplies the current key) so the
  * UI calls methods without threading the token. Thin — HTTP/errors live in FinceptClient.
  */
-export class FinceptAccount {
-  constructor(
-    private readonly client: FinceptClient,
-    private readonly token: () => string | undefined,
-  ) {}
-
-  private t(): string {
-    const tok = this.token()
-    if (!tok) throw new FinceptAuthError("Not signed in")
-    return tok
-  }
-
+export class FinceptAccount extends FinceptResource {
   me() {
-    return this.client.request<Account>({ method: "GET", path: "/v1/users/me", token: this.t() })
+    return this.client.request<Account>({ method: "GET", path: "/v1/users/me", token: this.requireToken() })
   }
   updateProfile(patch: ProfilePatch) {
-    return this.client.request<null>({ method: "PUT", path: "/v1/users/me", token: this.t(), body: patch })
+    return this.client.request<null>({ method: "PUT", path: "/v1/users/me", token: this.requireToken(), body: patch })
   }
   changePassword(oldPassword: string, newPassword: string) {
     return this.client.request<null>({
       method: "POST",
       path: "/v1/users/me/change-password",
-      token: this.t(),
+      token: this.requireToken(),
       body: { old_password: oldPassword, new_password: newPassword },
     })
   }
   deleteAccount(password: string) {
-    return this.client.request<null>({ method: "DELETE", path: "/v1/users/me", token: this.t(), body: { password } })
+    return this.client.request<null>({
+      method: "DELETE",
+      path: "/v1/users/me",
+      token: this.requireToken(),
+      body: { password },
+    })
   }
 
   usage() {
-    return this.client.request<UsageEntry[]>({ method: "GET", path: "/v1/users/me/usage", token: this.t() })
+    return this.client.request<UsageEntry[]>({ method: "GET", path: "/v1/users/me/usage", token: this.requireToken() })
   }
   transactions() {
     return this.client.request<TransactionEntry[]>({
       method: "GET",
       path: "/v1/users/me/transactions",
-      token: this.t(),
+      token: this.requireToken(),
     })
   }
   loginHistory() {
-    return this.client.request<LoginEntry[]>({ method: "GET", path: "/v1/users/me/login-history", token: this.t() })
+    return this.client.request<LoginEntry[]>({
+      method: "GET",
+      path: "/v1/users/me/login-history",
+      token: this.requireToken(),
+    })
   }
 
   notifications() {
-    return this.client.request<Notification[]>({ method: "GET", path: "/v1/users/me/notifications", token: this.t() })
+    return this.client.request<Notification[]>({
+      method: "GET",
+      path: "/v1/users/me/notifications",
+      token: this.requireToken(),
+    })
   }
   markNotificationRead(id: number) {
-    return this.client.request<null>({ method: "PUT", path: `/v1/users/me/notifications/${id}/read`, token: this.t() })
+    return this.client.request<null>({
+      method: "PUT",
+      path: `/v1/users/me/notifications/${id}/read`,
+      token: this.requireToken(),
+    })
   }
   markAllNotificationsRead() {
-    return this.client.request<null>({ method: "PUT", path: "/v1/users/me/notifications/read-all", token: this.t() })
+    return this.client.request<null>({
+      method: "PUT",
+      path: "/v1/users/me/notifications/read-all",
+      token: this.requireToken(),
+    })
   }
   deleteNotification(id: number) {
-    return this.client.request<null>({ method: "DELETE", path: `/v1/users/me/notifications/${id}`, token: this.t() })
+    return this.client.request<null>({
+      method: "DELETE",
+      path: `/v1/users/me/notifications/${id}`,
+      token: this.requireToken(),
+    })
   }
   notificationPrefs() {
     return this.client.request<NotificationPrefs>({
       method: "GET",
       path: "/v1/users/me/notification-preferences",
-      token: this.t(),
+      token: this.requireToken(),
     })
   }
   updateNotificationPrefs(patch: NotificationPrefsPatch) {
     return this.client.request<null>({
       method: "PUT",
       path: "/v1/users/me/notification-preferences",
-      token: this.t(),
+      token: this.requireToken(),
       body: patch,
     })
   }
 
   mfaEnable() {
-    return this.client.request<null>({ method: "POST", path: "/v1/users/me/mfa", token: this.t() })
+    return this.client.request<null>({ method: "POST", path: "/v1/users/me/mfa", token: this.requireToken() })
   }
   mfaDisable(password: string) {
     return this.client.request<null>({
       method: "DELETE",
       path: "/v1/users/me/mfa",
-      token: this.t(),
+      token: this.requireToken(),
       body: { password },
     })
   }
@@ -105,14 +118,14 @@ export class FinceptAccount {
     return this.client.request<Subscription[]>({
       method: "GET",
       path: "/v1/users/me/database-subscriptions",
-      token: this.t(),
+      token: this.requireToken(),
     })
   }
   subscribeDatabase(databaseName: string) {
     return this.client.request<null>({
       method: "POST",
       path: "/v1/users/me/database-subscriptions",
-      token: this.t(),
+      token: this.requireToken(),
       body: { database_name: databaseName },
     })
   }

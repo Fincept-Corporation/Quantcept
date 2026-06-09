@@ -1,5 +1,6 @@
 import { SessionStore } from "@core/storage"
 import { projectHash } from "@core/storage/paths"
+import type { ActionCommand } from "@ext/commands/types"
 import { type CliRenderer, type CliRendererConfig, createCliRenderer } from "@opentui/core"
 import { createDefaultOpenTuiKeymap } from "@opentui/keymap/opentui"
 import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
@@ -14,9 +15,11 @@ import { learningsCommands } from "@tui/components/learnings/learnings.commands"
 import { pluginCommands } from "@tui/components/plugins/plugin.commands"
 import { settingsCommands } from "@tui/components/settings/settings.commands"
 import { skillsCommands } from "@tui/components/skills/skills.commands"
+import { usageCommands } from "@tui/components/usage/usage.commands"
 import { AgentsProvider } from "@tui/context/agents"
-import { type Args, ArgsProvider } from "@tui/context/args"
+import { type Args, ArgsProvider, useArgs } from "@tui/context/args"
 import { AuthProvider, useAuth } from "@tui/context/auth"
+import { AutoAcceptProvider, useAutoAccept } from "@tui/context/auto-accept"
 import { CommandProvider, useCommands } from "@tui/context/command"
 import { createExit, type Exit, ExitProvider, useExit } from "@tui/context/exit"
 import { KVProvider } from "@tui/context/kv"
@@ -29,11 +32,12 @@ import { ThemeProvider, useTheme } from "@tui/context/theme"
 import { TuiConfigProvider } from "@tui/context/tui-config"
 import { QuantceptKeymapProvider } from "@tui/keymap"
 import { win32DisableProcessedInput, win32FlushInputBuffer, win32InstallCtrlCGuard } from "@tui/platform/win32"
+import { isAutoApproveToggle } from "@tui/routes/auto-approve"
 import { Home } from "@tui/routes/home"
 import { Session } from "@tui/routes/session"
-import { DialogProvider } from "@tui/ui/dialog"
-import { ToastProvider } from "@tui/ui/toast"
-import { ErrorBoundary, Match, onCleanup, Show, Switch } from "solid-js"
+import { DialogProvider, useDialog } from "@tui/ui/dialog"
+import { ToastProvider, useToast } from "@tui/ui/toast"
+import { ErrorBoundary, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 
 export function rendererConfig(): CliRendererConfig {
   return {
@@ -166,7 +170,9 @@ async function mountApp(input: AppInput & { keymap: ReturnType<typeof createDefa
                                     <AgentsProvider>
                                       <BuddyProvider>
                                         <AuthProvider>
-                                          <App />
+                                          <AutoAcceptProvider>
+                                            <App />
+                                          </AutoAcceptProvider>
                                         </AuthProvider>
                                       </BuddyProvider>
                                     </AgentsProvider>
@@ -201,17 +207,60 @@ function App() {
   const commands = useCommands()
   const plugins = usePlugins()
   const skills = useSkills()
+  const autoAccept = useAutoAccept()
+  const toast = useToast()
+  const dialog = useDialog()
+  const args = useArgs()
+  // Auto-accept is app-global so it works (and shows its amber indicator) on both the home screen
+  // and inside a session, and a fresh session inherits it. Toggle feedback lives here, shared by
+  // the /auto command (ctrl+t) and the shift+tab keybind below.
+  function toggleAutoAccept() {
+    const next = !autoAccept.enabled()
+    autoAccept.set(next)
+    toast.show({
+      message: next
+        ? "Auto-accept ON — tool prompts are granted automatically (ctrl+t or /auto to stop)"
+        : "Auto-accept OFF — tool prompts will ask again",
+      variant: next ? "warning" : "info",
+    })
+    renderer.requestRender()
+  }
+  const autoCmd: ActionCommand = {
+    kind: "action",
+    id: "session.auto",
+    name: "auto",
+    description: "Toggle auto-accept for tool permission prompts (ctrl+t, or shift+tab)",
+    category: "Session",
+    source: "builtin",
+    keybind: "ctrl+t",
+    run: () => toggleAutoAccept(),
+  }
   const unregister = [
     ...buddyCommands(buddy),
     ...authCommands(auth),
     ...settingsCommands(auth),
+    ...usageCommands(auth),
     ...cloudCommands(auth),
     ...learningsCommands(auth),
     ...pluginCommands(plugins),
     ...skillsCommands({ skills: () => skills.all(), route }),
+    autoCmd,
   ].map((c) => commands.register(c))
   onCleanup(() => {
     for (const u of unregister) u()
+  })
+
+  // --skip-permissions seeds auto-accept ON once at launch (same machinery as ctrl+t / shift+tab),
+  // so every tool permission prompt is granted without a dialog. Explicit `deny` rules and the hard
+  // pre-trade risk gate are NOT bypassed. The user can still toggle it back off with ctrl+t.
+  onMount(() => {
+    if (!args.skipPermissions) return
+    autoAccept.set(true)
+    toast.show({
+      message: "--skip-permissions: tool prompts auto-granted (deny rules + risk limits still apply; ctrl+t to stop)",
+      variant: "warning",
+    })
+    renderer.requestRender()
   })
 
   renderer.setTerminalTitle("Quantcept")
@@ -220,6 +269,12 @@ function App() {
   // no need to set it again here.
 
   useKeyboard((e: any) => {
+    // Shift+tab toggles auto-accept on every screen (works in terminals that deliver it; /auto
+    // and ctrl+t cover terminals that don't). Skipped while a modal owns the keyboard.
+    if (isAutoApproveToggle(e) && !dialog.active()) {
+      toggleAutoAccept()
+      return
+    }
     if (e.ctrl && e.name === "c") {
       void exit()
     }

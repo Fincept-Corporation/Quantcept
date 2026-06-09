@@ -14,3 +14,8 @@ export function formatRelativeTime(ts: number, now: number = Date.now()): string
   const d = new Date(ts)
   return `${d.getDate()} ${MONTHS[d.getMonth()]}`
 }
+
+/** UTC calendar-day bucket key, `YYYY-MM-DD` — used to bucket daily budgets and realized PnL. */
+export function dayKey(now: number = Date.now()): string {
+  return new Date(now).toISOString().slice(0, 10)
+}

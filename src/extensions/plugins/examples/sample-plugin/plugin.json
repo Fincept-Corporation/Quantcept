@@ -1,7 +1,0 @@
-{
-  "name": "sample-plugin",
-  "version": "1.0.0",
-  "description": "A reference plugin contributors can copy",
-  "skillsPaths": ["./skills"],
-  "author": { "name": "Quantcept" }
-}

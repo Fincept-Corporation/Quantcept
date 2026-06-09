@@ -15,7 +15,7 @@ export const { use: useAgents, provider: AgentsProvider } = createSimpleContext(
   name: "Agents",
   init: () => {
     const plugins = usePlugins()
-    const [registry] = createResource(async () => {
+    const [registry, { refetch }] = createResource(async () => {
       try {
         const agents = await discoverAgents({
           builtinDir: BUILTIN_DIR,
@@ -41,6 +41,10 @@ export const { use: useAgents, provider: AgentsProvider } = createSimpleContext(
       },
       get(name: string): LoadedAgent | undefined {
         return merged().find((a) => a.name === name)
+      },
+      /** Re-read the agent directories (e.g. after /create-agent writes a new file). */
+      refresh(): void {
+        void refetch()
       },
       ready: true,
     }

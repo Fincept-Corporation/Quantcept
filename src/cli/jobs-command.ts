@@ -12,6 +12,7 @@ import { projectHash } from "@core/storage/paths"
 import type { ToolRegistry as ToolRegistryType } from "@core/tools/registry"
 import type { Tool } from "@core/tools/Tool"
 import { makeVerifier } from "@core/verify"
+import { ellipsize } from "@shared/format"
 
 const out = (s: string): void => {
   console.log(s)
@@ -238,11 +239,6 @@ function flagJson(v: string | boolean | undefined, label: string): unknown {
   }
 }
 
-function truncate(s: string, n: number): string {
-  const oneLine = s.replace(/\s+/g, " ").trim()
-  return oneLine.length <= n ? oneLine : `${oneLine.slice(0, n - 1)}…`
-}
-
 const ADD_USAGE =
   "add <goal...> [--max-turns N] [--max-usd N] [--max-tokens N] [--max-tool-calls N] [--max-data-calls N] [--schedule <json>] [--success <json>] [--once] [--read-only=false]"
 
@@ -323,7 +319,7 @@ export async function runJobsCli(action: string | undefined, rest: string[]): Pr
         out(["ID", "STATUS", "TURNS", "NEXT_RUN", "GOAL"].join("\t"))
         for (const j of jobs) {
           const next = j.nextRunAt !== undefined ? new Date(j.nextRunAt).toISOString() : "—"
-          out([j.id, j.status, `${j.turnsUsed}/${j.maxTurns}`, next, truncate(j.goal, 50)].join("\t"))
+          out([j.id, j.status, `${j.turnsUsed}/${j.maxTurns}`, next, ellipsize(j.goal, 50)].join("\t"))
         }
         return
       }
@@ -338,7 +334,7 @@ export async function runJobsCli(action: string | undefined, rest: string[]): Pr
           const final = await runJob(job, depsForJob(shared, store, job))
           const lastTurn = store.loadTurns(id).at(-1)
           out(`job ${final.id}: ${final.status}${final.pauseReason ? ` (${final.pauseReason})` : ""}`)
-          if (lastTurn?.text) out(truncate(lastTurn.text, 400))
+          if (lastTurn?.text) out(ellipsize(lastTurn.text, 400))
         } finally {
           await shared.dispose()
         }
@@ -417,7 +413,7 @@ export async function runJobsCli(action: string | undefined, rest: string[]): Pr
           }
           out(["ID", "JOB", "ACTION", "PAYLOAD"].join("\t"))
           for (const a of pending) {
-            out([a.id, a.jobId ?? "—", a.action, truncate(JSON.stringify(a.payload ?? {}), 60)].join("\t"))
+            out([a.id, a.jobId ?? "—", a.action, ellipsize(JSON.stringify(a.payload ?? {}), 60)].join("\t"))
           }
         } finally {
           approvals.close()

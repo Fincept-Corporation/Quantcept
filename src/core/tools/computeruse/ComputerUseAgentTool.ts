@@ -27,7 +27,7 @@ export function createComputerUseAgentTool(deps: ComputerUseAgentDeps) {
   return buildTool({
     name: "computerUse",
     description:
-      "Delegate a GUI task to an autonomous computer-use agent that sees the screen and controls the mouse/keyboard. Give a clear, complete `instruction` (e.g. \"open Chrome, go to fincept.in, and scroll to the bottom\"). It runs the whole task to completion and returns a summary. Use this for anything needing clicking, typing, scrolling, or navigating apps/websites.",
+      'Delegate a GUI task to an autonomous computer-use agent that sees the screen and controls the mouse/keyboard. Give a clear, complete `instruction` (e.g. "open Chrome, go to fincept.in, and scroll to the bottom"). It runs the whole task to completion and returns a summary. Use this for anything needing clicking, typing, scrolling, or navigating apps/websites.',
     inputSchema: ComputerUseAgentInputSchema,
     isReadOnly: () => false,
     isDestructive: () => true,

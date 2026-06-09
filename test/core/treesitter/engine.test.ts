@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { parse, query, queryMatches, spanOf } from "@core/treesitter/engine"
+import { freeTree, parse, query, queryMatches, spanOf } from "@core/treesitter/engine"
 
 describe("treesitter engine", () => {
   test("parse + query returns captures with byte spans, in document order", async () => {
@@ -30,5 +30,21 @@ describe("treesitter engine", () => {
     const m = queryMatches(tree!, "(command name: (command_name) @name) @cmd", "bash")
     expect(m.length).toBe(1)
     expect(m[0].captures.map((c) => c.name).sort()).toEqual(["cmd", "name"])
+  })
+
+  test("freeTree calls the tree's delete() to release the wasm allocation", () => {
+    let deleted = 0
+    freeTree({ delete: () => deleted++ })
+    expect(deleted).toBe(1)
+  })
+
+  test("freeTree tolerates null and trees without delete()", () => {
+    expect(() => freeTree(null)).not.toThrow()
+    expect(() => freeTree({})).not.toThrow()
+  })
+
+  test("a real parsed tree can be freed without throwing", async () => {
+    const tree = await parse("ls", "bash")
+    expect(() => freeTree(tree)).not.toThrow()
   })
 })

@@ -5,7 +5,13 @@ import { useTheme } from "@tui/context/theme"
 import { ModalFrame, ModalList, useListNav, useModalKeyboard, useNotice } from "@tui/ui/modal"
 import { createMemo, createSignal, onMount, Show } from "solid-js"
 import { filterSessions } from "./filter"
-import { chatStoresCloud, cloudSummaries, localSummaries, type SessionSummary } from "./history"
+import {
+  chatStoresCloud,
+  cloudSummaries,
+  deleteCloudConversation,
+  localSummaries,
+  type SessionSummary,
+} from "./history"
 
 /**
  * Browse and resume a past chat. Lists cloud conversations when storage is cloud,
@@ -21,6 +27,8 @@ export function ResumeModal(props: { onClose: () => void; onResume: (id: string)
   const [all, setAll] = createSignal<SessionSummary[]>([])
   const [query, setQuery] = createSignal("")
   const [view, setView] = createSignal<"list" | "preview">("list")
+  // Two-press delete guard: holds the id armed for deletion (Ctrl+D once arms, again confirms).
+  const [pendingDelete, setPendingDelete] = createSignal<string | null>(null)
 
   // Cloud history loads async; local is a synchronous store read.
   onMount(() => {
@@ -50,6 +58,12 @@ export function ResumeModal(props: { onClose: () => void; onResume: (id: string)
           renderer.requestRender()
         }
         return true // preview swallows every key
+      }
+      // Ctrl+D deletes the highlighted chat (two-press confirm). Ctrl+ because plain letters
+      // are captured as search input below.
+      if (e.name === "d" && e.ctrl) {
+        if (sel) void deleteEntry(sel)
+        return true
       }
       // → opens a preview (local sessions only — cloud preview would need a fetch).
       if (e.name === "right" && !cloud) {
@@ -93,6 +107,28 @@ export function ResumeModal(props: { onClose: () => void; onResume: (id: string)
       } else props.onClose()
     },
   })
+  // Delete the highlighted chat: cloud → soft-delete via the API, local → drop transcript + index.
+  // First Ctrl+D arms (shows a confirm hint); a second on the same row commits.
+  async function deleteEntry(sel: SessionSummary) {
+    if (pendingDelete() !== sel.id) {
+      setPendingDelete(sel.id)
+      notice.flash(`Ctrl+D again to delete "${trunc(sel.title, 28)}"`)
+      return
+    }
+    setPendingDelete(null)
+    let ok = true
+    if (sel.cloud) ok = await deleteCloudConversation(sel.id)
+    else storage.deleteSession(sel.id)
+    if (ok) {
+      setAll((a) => a.filter((s) => s.id !== sel.id))
+      nav.setCursor(Math.min(nav.cursor(), Math.max(0, items().length - 1)))
+      notice.flash("Deleted.")
+    } else {
+      notice.fail(new Error("Couldn't delete — try again."))
+    }
+    renderer.requestRender()
+  }
+
   useModalKeyboard({ nav })
 
   // Read the transcript only while previewing a LOCAL session (not on every scroll).
@@ -111,8 +147,8 @@ export function ResumeModal(props: { onClose: () => void; onResume: (id: string)
     view() === "preview"
       ? "←/Esc back"
       : cloud
-        ? "↑/↓ move · Enter resume · type to search · Esc close"
-        : "↑/↓ move · → preview · Enter resume · type to search · Esc close"
+        ? "↑/↓ move · Enter resume · Ctrl+D delete · type to search · Esc close"
+        : "↑/↓ move · → preview · Enter resume · Ctrl+D delete · type to search · Esc close"
 
   return (
     <ModalFrame title={cloud ? "☁ Resume a chat" : "↻ Resume a session"} footer={footer()} notice={notice.notice()}>

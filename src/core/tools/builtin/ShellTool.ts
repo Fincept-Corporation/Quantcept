@@ -18,7 +18,7 @@ const MAX_OUTPUT = 100_000
 export const ShellTool = buildTool({
   name: "shell",
   description:
-    "Run a shell command (PowerShell on Windows, bash/sh on unix). Chained commands (&&, ||, ;, |) are each permission-checked.",
+    "Run a shell command (PowerShell on Windows, bash/sh on unix). Chained commands (&&, ||, ;, |) are each permission-checked. Use for scripts and system tasks — not for fetching URLs or downloading files (use the dedicated data tools for that).",
   inputSchema: InputSchema,
   isDestructive: () => true,
   permissionPatterns(input) {

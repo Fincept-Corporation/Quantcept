@@ -27,7 +27,20 @@ export type Hat = (typeof HATS)[number]
 export const STAT_NAMES = ["ALPHA", "PATIENCE", "CHAOS", "WISDOM", "SNARK"] as const
 export type StatName = (typeof STAT_NAMES)[number]
 
-export const MOODS = ["idle", "thinking", "success", "error", "pet"] as const
+// Human, personality-driven moods (NOT task outcomes). The buddy drifts among these
+// over time, biased by its stats; `content` is the resting baseline. See buddy/mood.ts.
+export const MOODS = [
+  "content",
+  "curious",
+  "playful",
+  "excited",
+  "sleepy",
+  "dreamy",
+  "smug",
+  "bored",
+  "grumpy",
+  "proud",
+] as const
 export type Mood = (typeof MOODS)[number]
 
 export const RARITY_WEIGHTS = {

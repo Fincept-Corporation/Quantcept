@@ -16,7 +16,18 @@ describe("buddy types", () => {
     expect(EYES.length).toBeGreaterThan(0)
     expect(HATS).toContain("none")
     expect(STAT_NAMES.length).toBe(5)
-    expect(MOODS).toEqual(["idle", "thinking", "success", "error", "pet"])
+    expect(MOODS).toEqual([
+      "content",
+      "curious",
+      "playful",
+      "excited",
+      "sleepy",
+      "dreamy",
+      "smug",
+      "bored",
+      "grumpy",
+      "proud",
+    ])
   })
   test("every RARITY_COLORS value is a key present in all bundled themes", async () => {
     // Guards against the theme proxy returning #ff00ff for an unmapped key.

@@ -1,12 +1,9 @@
 // src/core/budget/governor.ts
 import type { Database } from "bun:sqlite"
-import { openDb } from "@core/storage/db"
+import { openOwnedDb } from "@core/storage/owned-db"
+import { dayKey } from "@shared/time"
 import { estimateCostUsd, type PriceTable } from "./pricing"
 import type { Budget, BudgetCheck, Spend } from "./types"
-
-function dayKey(): string {
-  return new Date().toISOString().slice(0, 10)
-}
 
 export class BudgetGovernor {
   private db: Database
@@ -15,8 +12,9 @@ export class BudgetGovernor {
   private ownsDb: boolean
 
   constructor(opts: { budget: Budget; pricing?: PriceTable; db?: Database }) {
-    this.ownsDb = opts.db === undefined
-    this.db = opts.db ?? openDb()
+    const owned = openOwnedDb(opts.db)
+    this.db = owned.db
+    this.ownsDb = owned.ownsDb
     this.budget = opts.budget
     this.pricing = opts.pricing
   }

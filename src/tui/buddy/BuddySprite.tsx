@@ -2,24 +2,29 @@ import { useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { useTheme } from "@tui/context/theme"
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { useBuddy } from "./BuddyContext"
+import { driftMood, MOOD_COLOR, MOOD_EYE, MOOD_TOPPER } from "./mood"
 import { pickQuip } from "./quips"
 import { renderFace, renderSprite, spriteFrameCount } from "./sprites"
-import { type Mood, RARITY_COLORS } from "./types"
+import type { Mood } from "./types"
 
 const TICK_MS = 500
 const REACTION_TICKS = 16 // ~8s visible
-const IDLE_QUIP_EVERY = 24 // ticks → new idle quip ~every 12s
+const IDLE_QUIP_EVERY = 24 // ticks → new quip ~every 12s
 const PET_BURST_MS = 2500
 const MIN_COLS_FOR_FULL_SPRITE = 60
 // Mostly rest; occasional fidget (1,2); -1 = blink on frame 0.
 const IDLE_SEQUENCE = [0, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 2, 0, 0, 0]
 const HEARTS = ["  ♥   ♥  ", " ♥  ♥  ♥ ", "♥   ♥   ♥", " ·   ·  ·"]
-// Expressive-reaction tuning.
-const THINK_BLINK_EVERY = 3 // fast blink cadence while thinking
-const SUCCESS_JUMP_TICKS = 4 // how long the success bob-jump lasts
-const SHAKE_TICKS = 6 // how long the error shake lasts
+const EXCITED_HOP_TICKS = 4 // a fresh pet → a brief bob-hop
 
-export function BuddySprite(props: { compact?: boolean }) {
+/** Center a single topper glyph on a 12-column line (sprite art width). */
+function centerTopper(ch: string): string {
+  const width = 12
+  const left = Math.floor((width - 1) / 2)
+  return " ".repeat(left) + ch + " ".repeat(width - left - 1)
+}
+
+export function BuddySprite(props: { compact?: boolean; minimal?: boolean }) {
   const buddy = useBuddy()
   const { theme } = useTheme()
   const renderer = useRenderer()
@@ -27,11 +32,22 @@ export function BuddySprite(props: { compact?: boolean }) {
 
   const [tick, setTick] = createSignal(0)
   const [quip, setQuip] = createSignal<string>("")
-  // Current visible mood: 'idle' or the active reaction's mood.
-  const [shownMood, setShownMood] = createSignal<Mood>("idle")
+  // The buddy's current human mood: engaged ("curious") while the agent works, the active
+  // reaction (petting → "excited") for its window, otherwise its own personality drift.
+  const [shownMood, setShownMood] = createSignal<Mood>("content")
   const recent: string[] = []
   let reactionStartTick = -Infinity
   let lastSeenReactionAt = 0
+  // Repaint gate: the tick fires every 500ms but the sprite is usually visually identical
+  // (it mostly rests + drifts slowly). Only request a render when the output actually changed.
+  let lastSig = ""
+
+  function rotateQuip(mood: Mood) {
+    const line = pickQuip(mood, recent)
+    recent.push(line)
+    if (recent.length > 8) recent.shift()
+    setQuip(line)
+  }
 
   let timer: ReturnType<typeof setInterval>
   onMount(() => {
@@ -41,58 +57,56 @@ export function BuddySprite(props: { compact?: boolean }) {
 
       const r = buddy.reaction()
       if (r && r.at !== lastSeenReactionAt) {
-        // A new reaction just arrived — snapshot its start tick, set its quip.
+        // A new reaction (petting) arrived — snapshot its start tick + a matching quip.
         lastSeenReactionAt = r.at
         reactionStartTick = t
-        setShownMood(r.mood)
-        const line = pickQuip(r.mood, recent)
-        recent.push(line)
-        if (recent.length > 8) recent.shift()
-        setQuip(line)
+        rotateQuip(r.mood)
       } else if (r && t - reactionStartTick > REACTION_TICKS) {
-        // Reaction expired — clear it and fall back to idle.
         buddy.clearReaction()
-        setShownMood("idle")
-        setQuip("")
         lastSeenReactionAt = 0
-      } else if (!r && t % IDLE_QUIP_EVERY === 0) {
-        // Idle cadence — rotate an idle quip.
-        setShownMood("idle")
-        const line = pickQuip("idle", recent)
-        recent.push(line)
-        if (recent.length > 8) recent.shift()
-        setQuip(line)
       }
 
-      renderer.requestRender()
+      const rNow = buddy.reaction()
+      const reactionActive = !!rNow && !buddy.busy() && t - reactionStartTick <= REACTION_TICKS
+      const mood: Mood = buddy.busy()
+        ? "curious"
+        : reactionActive && rNow
+          ? rNow.mood
+          : driftMood(buddy.companion(), Date.now())
+      setShownMood(mood)
+
+      // Rotate an ambient quip for the current mood while not in a reaction window.
+      if (!reactionActive && t % IDLE_QUIP_EVERY === 0) rotateQuip(mood)
+
+      const effCompact = props.compact || dims().width < MIN_COLS_FOR_FULL_SPRITE
+      const sig = buddy.muted()
+        ? "muted"
+        : effCompact
+          ? `c|${quip() || buddy.companion().name}|${moodColor()}|${shownMood()}`
+          : `f|${lines().join("\n")}|${quip()}|${moodColor()}`
+      if (sig !== lastSig) {
+        lastSig = sig
+        renderer.requestRender()
+      }
     }, TICK_MS)
   })
   onCleanup(() => clearInterval(timer))
 
-  const moodColorKey = createMemo<string>(() => {
-    const m = shownMood()
-    if (m === "success") return "success"
-    if (m === "error") return "error"
-    if (m === "thinking") return "accent"
-    return RARITY_COLORS[buddy.companion().rarity]
+  const moodColor = createMemo<string>(() => MOOD_COLOR[shownMood()])
+
+  // Ticks since the active reaction began (Infinity when drifting / engaged).
+  const reactionAge = createMemo(() => {
+    const r = buddy.reaction()
+    return r && !buddy.busy() ? tick() - reactionStartTick : Number.POSITIVE_INFINITY
   })
 
-  // Ticks elapsed since the current reaction began (Infinity when idle).
-  const reactionAge = createMemo(() => (shownMood() === "idle" ? Number.POSITIVE_INFINITY : tick() - reactionStartTick))
-
   const frame = createMemo(() => {
-    const mood = shownMood()
     const count = spriteFrameCount(buddy.companion().species)
-    // While thinking, blink rapidly instead of running the idle sequence.
-    if (mood === "thinking") {
-      return { index: 0, blink: tick() % THINK_BLINK_EVERY === 0 }
-    }
     const step = IDLE_SEQUENCE[tick() % IDLE_SEQUENCE.length]!
     return step === -1 ? { index: 0, blink: true } : { index: step % count, blink: false }
   })
 
-  // petAt is wall-clock; compared to wall-clock — correct. Re-evaluated each tick
-  // because it reads tick().
+  // petAt is wall-clock; compared to wall-clock — correct. Re-evaluated each tick (reads tick()).
   const petting = createMemo(() => {
     tick()
     return buddy.petAt() > 0 && Date.now() - buddy.petAt() < PET_BURST_MS
@@ -104,27 +118,23 @@ export function BuddySprite(props: { compact?: boolean }) {
     const mood = shownMood()
     const age = reactionAge()
 
-    // Eye glyph: "-" for a blink, "v" while drooping on error, else the real eye.
-    const eyeOverride = f.blink ? "-" : mood === "error" ? "v" : undefined
+    // Eyes reflect the mood; "content" keeps the buddy's OWN eye glyph (identity), and a
+    // blink temporarily shows "-". The mood eye drops into the shared slot of every species.
+    const moodEye = mood === "content" ? undefined : MOOD_EYE[mood]
+    const eyeOverride = f.blink ? "-" : moodEye
     let body = renderSprite(c, f.index, eyeOverride)
 
-    // Error: horizontal shake — jitter the column 1 space on alternating ticks.
-    if (mood === "error" && age < SHAKE_TICKS) {
-      const pad = tick() % 2 === 0 ? " " : ""
-      body = body.map((l) => pad + l)
-    }
+    // Grumpy: an occasional 1-column twitch (not a constant shake — grumpy is a sustained mood).
+    if (mood === "grumpy" && tick() % 8 === 0) body = body.map((l) => ` ${l}`)
 
-    // Mood topper line above the sprite (thinking "?", success sparkle).
-    let topper: string | undefined
-    if (mood === "thinking") topper = "     ?      "
-    else if (mood === "success" && age < SUCCESS_JUMP_TICKS) topper = "     ✦      "
+    // Mood topper above the sprite (e.g. curious "?", excited "!", sleepy "z").
+    const topperCh = MOOD_TOPPER[mood]
+    if (topperCh) body = [centerTopper(topperCh), ...body]
 
-    // Success: bob-jump — lift the sprite one row for the first few ticks by
-    // adding a blank line below (so the topper stays put and the body "hops").
-    const hop = mood === "success" && age < SUCCESS_JUMP_TICKS && tick() % 2 === 0
-
-    if (topper) body = [topper, ...body]
+    // A fresh pet → brief bob-hop while excited.
+    const hop = mood === "excited" && age < EXCITED_HOP_TICKS && tick() % 2 === 0
     if (hop) body = [...body, "            "]
+
     if (petting()) body = [HEARTS[tick() % HEARTS.length]!, ...body]
     return body
   })
@@ -135,15 +145,20 @@ export function BuddySprite(props: { compact?: boolean }) {
         when={!props.compact && dims().width >= MIN_COLS_FOR_FULL_SPRITE}
         fallback={
           <box flexDirection="column" alignItems="center">
-            <text fg={theme[moodColorKey()]}>{renderFace(buddy.companion())}</text>
-            <text fg={theme.textMuted}>{quip() || buddy.companion().name}</text>
+            <text fg={theme[moodColor()]}>
+              {renderFace(buddy.companion(), shownMood() === "content" ? undefined : MOOD_EYE[shownMood()])}
+            </text>
+            {/* `minimal` (the slim session column) shows just the name; full compact also rotates quips. */}
+            <text fg={theme.textMuted}>
+              {props.minimal ? buddy.companion().name : quip() || buddy.companion().name}
+            </text>
           </box>
         }
       >
         <box flexDirection="row" alignItems="flex-start" gap={1}>
           <box flexDirection="column" alignItems="center" maxHeight={15} overflow="hidden">
             {lines().map((line) => (
-              <text fg={theme[moodColorKey()]}>{line}</text>
+              <text fg={theme[moodColor()]}>{line}</text>
             ))}
             <text fg={theme.textMuted}>{buddy.companion().name}</text>
           </box>

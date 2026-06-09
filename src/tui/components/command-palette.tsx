@@ -1,7 +1,8 @@
 import type { Command } from "@ext/commands/types"
-import { useKeyboard, useRenderer } from "@opentui/solid"
+import { useKeyboard, usePaste, useRenderer } from "@opentui/solid"
 import { useCommands } from "@tui/context/command"
 import { useTheme } from "@tui/context/theme"
+import { pasteText } from "@tui/platform/paste"
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 
 export function CommandPalette() {
@@ -63,6 +64,17 @@ export function CommandPalette() {
       e.preventDefault?.()
       setFilter((f) => f + e.sequence)
     }
+  })
+
+  // Paste into the filter (a multi-char event useKeyboard never sees). Gated on the
+  // palette being open so it doesn't fire while the home prompt owns input.
+  // biome-ignore lint/suspicious/noExplicitAny: @opentui paste event is untyped
+  usePaste((e: any) => {
+    if (!commands.paletteOpen()) return
+    const text = pasteText(e.bytes)
+    if (!text) return
+    setFilter((f) => f + text)
+    renderer.requestRender()
   })
 
   return (

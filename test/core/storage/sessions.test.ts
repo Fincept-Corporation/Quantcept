@@ -70,6 +70,25 @@ describe("SessionStore", () => {
     store = new SessionStore()
   })
 
+  test("deleteSession removes the row AND the transcript (so rebuildIndex can't resurrect it)", () => {
+    store.createSession({ id: "s1", cwd: "/repo/a", title: "Doomed" })
+    store.appendEvent("s1", { t: "msg", role: "user", content: "bye", ts: 1 })
+    store.createSession({ id: "s2", cwd: "/repo/a", title: "Keep" })
+    const ph = store.projectHashFor("/repo/a")
+    expect(store.listSessions(ph).map((s) => s.id).sort()).toEqual(["s1", "s2"])
+
+    store.deleteSession("s1")
+    expect(store.listSessions(ph).map((s) => s.id)).toEqual(["s2"]) // s1 gone, s2 kept
+    expect(store.loadSession("s1")).toEqual([]) // transcript gone too
+
+    store.rebuildIndex() // the killer test: a transcript-less session must NOT come back
+    expect(store.listSessions(ph).map((s) => s.id)).toEqual(["s2"])
+  })
+
+  test("deleteSession on an unknown session is a no-op (no throw)", () => {
+    expect(() => store.deleteSession("never-created")).not.toThrow()
+  })
+
   test("setTitle writes once and does not overwrite an existing title", () => {
     store.createSession({ id: "s1", cwd: "/repo/a" })
     store.setTitle("s1", "First title")

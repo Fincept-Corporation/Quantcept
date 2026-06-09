@@ -6,7 +6,8 @@ export function isAutoApproveToggle(key: { name?: string; shift?: boolean }): bo
   return key.name === "tab" && key.shift === true
 }
 
-/** The footer hint shown for the current auto-approve state. */
+/** The footer hint shown for the current auto-approve state. `/auto` is listed alongside
+ *  shift+tab because some terminals intercept shift+tab before it reaches the app. */
 export function autoApproveLabel(on: boolean): string {
-  return on ? "auto-accept ON (shift+tab to stop)" : "shift+tab auto-accept"
+  return on ? "auto-accept ON (ctrl+t / shift+tab to stop)" : "ctrl+t / shift+tab: auto-accept"
 }

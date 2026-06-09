@@ -52,6 +52,24 @@ describe("rankCommands", () => {
     const cmds = [cmd("a", "alpha"), cmd("b", "beta")]
     expect(rankCommands("", cmds)).toHaveLength(2)
   })
+  test("empty query orders by curated category, then name", () => {
+    // Registration order is scrambled; the result should be grouped by the
+    // curated category priority (Session before Plugins before General) and
+    // sorted alphabetically by name within each category.
+    const cmds = [
+      cmd("help", "help", "", "General"),
+      cmd("plugin", "plugin", "", "Plugins"),
+      cmd("resume", "resume", "", "Session"),
+      cmd("clear", "clear", "", "Session"),
+    ]
+    const ranked = rankCommands("", cmds).map((c) => c.name)
+    expect(ranked).toEqual(["clear", "resume", "plugin", "help"])
+  })
+  test("empty query sorts unknown categories after curated ones", () => {
+    const cmds = [cmd("z", "zed", "", "Wormhole"), cmd("p", "plugin", "", "Plugins")]
+    const ranked = rankCommands("", cmds).map((c) => c.id)
+    expect(ranked).toEqual(["p", "z"])
+  })
   test("filters out non-matching commands", () => {
     const cmds = [cmd("a", "alpha"), cmd("b", "beta")]
     expect(rankCommands("zzz", cmds)).toHaveLength(0)

@@ -6,6 +6,7 @@ import { type HookConfig, normalizeHookConfig } from "@core/hooks/types"
 import { type McpServer, McpServerSchema } from "@core/mcp/config"
 import { loadSkillFromDir } from "@core/skills/load"
 import type { LoadedSkill } from "@core/skills/manifest"
+import { parseFrontmatter } from "@shared/frontmatter"
 import { logger } from "@shared/logger"
 import { type InterpolateVars, interpolateDeep } from "./interpolate"
 import type { PluginCommand } from "./manifest"
@@ -43,24 +44,6 @@ async function collectFiles(
     }
   }
   return files
-}
-
-/** Minimal frontmatter reader for plugin command files (scalar keys only). */
-export function parseCommandFrontmatter(raw: string): { data: Record<string, string>; body: string } {
-  const content = raw.replace(/\r\n/g, "\n")
-  const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(content)
-  if (!match) return { data: {}, body: content }
-  const data: Record<string, string> = {}
-  for (const line of match[1]!.split("\n")) {
-    if (/^\s/.test(line) || line.trim() === "") continue
-    const idx = line.indexOf(":")
-    if (idx === -1) continue
-    data[line.slice(0, idx).trim()] = line
-      .slice(idx + 1)
-      .trim()
-      .replace(/^["']|["']$/g, "")
-  }
-  return { data, body: match[2] ?? "" }
 }
 
 /** Skills are ADDITIVE: always scan ./skills, plus any manifest-declared skill dirs. */
@@ -102,12 +85,13 @@ export async function loadMarkdownCommands(
   for (const file of files) {
     try {
       const raw = await fs.readFile(file, "utf8")
-      const { data, body } = parseCommandFrontmatter(raw)
-      const name = data.name || path.basename(file, ".md")
+      const { data, body } = parseFrontmatter(raw)
+      const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined)
+      const name = str(data.name) || path.basename(file, ".md")
       out.push({
         name,
-        description: data.description || body.trim().split("\n")[0]?.slice(0, 80),
-        argumentHint: data["argument-hint"],
+        description: str(data.description) || body.trim().split("\n")[0]?.slice(0, 80),
+        argumentHint: str(data["argument-hint"]),
         body: body.trim(),
       })
     } catch (e) {
@@ -124,8 +108,8 @@ export async function loadAgentFiles(dir: string, override: string | string[] | 
   for (const file of files) {
     try {
       out.push(await loadAgentFromFile(file))
-    } catch {
-      // skip invalid agent files
+    } catch (e) {
+      logger.warn("skipping invalid plugin agent", { file, error: String(e) })
     }
   }
   return out

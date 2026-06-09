@@ -1,4 +1,4 @@
-import type { FinceptClient } from "./client"
+import { FinceptResource } from "./resource"
 
 export interface LlmOptions {
   model?: string
@@ -57,22 +57,13 @@ export interface LlmTask {
  * `visualAnalysis`, `grokipedia`, and `newsEvents`. (The agent-facing tools wrap
  * only the synchronous subset; see tools.ts.)
  */
-export class FinceptResearch {
-  constructor(
-    private readonly client: FinceptClient,
-    private readonly token: () => string | undefined,
-  ) {}
-
-  private t() {
-    return this.token()
-  }
-
+export class FinceptResearch extends FinceptResource {
   /** Synchronous LLM inference (5 credits). Server-cached for 1h when no tools are passed. */
   llm(prompt: string, opts?: LlmOptions) {
     return this.client.request<LlmResult>({
       method: "POST",
       path: "/v1/research/llm",
-      token: this.t(),
+      token: this.token(),
       body: {
         prompt,
         model: opts?.model,
@@ -89,7 +80,7 @@ export class FinceptResearch {
     return this.client.request<{ task_id: string; message: string }>({
       method: "POST",
       path: "/v1/research/llm/async",
-      token: this.t(),
+      token: this.token(),
       body: { prompt, max_tokens: opts?.maxTokens, temperature: opts?.temperature, thinking: opts?.thinking },
     })
   }
@@ -99,7 +90,7 @@ export class FinceptResearch {
     return this.client.request<LlmTask>({
       method: "GET",
       path: `/v1/research/llm/status/${encodeURIComponent(taskId)}`,
-      token: this.t(),
+      token: this.token(),
     })
   }
 
@@ -108,7 +99,7 @@ export class FinceptResearch {
     return this.client.request<VisualResult>({
       method: "POST",
       path: "/v1/research/visual-analysis",
-      token: this.t(),
+      token: this.token(),
       body: { image_url: imageUrl, prompt, max_tokens: opts?.maxTokens, temperature: opts?.temperature },
       timeoutMs: 90_000,
     })
@@ -119,7 +110,7 @@ export class FinceptResearch {
     return this.client.request<GrokipediaArticle>({
       method: "POST",
       path: "/v1/research/grokipedia",
-      token: this.t(),
+      token: this.token(),
       body: { slug, extract_refs: opts?.extractRefs, truncate: opts?.truncate, citations: opts?.citations },
     })
   }
@@ -130,14 +121,10 @@ export class FinceptResearch {
    * throws FinceptError until the backend lands. Kept for complete API coverage.
    */
   newsEvents(opts?: { page?: number; limit?: number }) {
-    const u = new URLSearchParams()
-    if (opts?.page) u.set("page", String(opts.page))
-    if (opts?.limit) u.set("limit", String(opts.limit))
-    const q = u.toString()
     return this.client.request<unknown>({
       method: "GET",
-      path: `/v1/research/news-events${q ? `?${q}` : ""}`,
-      token: this.t(),
+      path: `/v1/research/news-events${this.qs({ page: opts?.page || undefined, limit: opts?.limit || undefined })}`,
+      token: this.token(),
     })
   }
 }

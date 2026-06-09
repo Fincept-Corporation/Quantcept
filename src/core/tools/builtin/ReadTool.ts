@@ -10,7 +10,8 @@ const InputSchema = z.object({
 
 export const ReadTool = buildTool({
   name: "read",
-  description: "Read a file's contents (UTF-8), optionally a line range. offset is 1-based.",
+  description:
+    "Read a file's contents (UTF-8), optionally a line range (offset is 1-based). Workspace files only — paths outside the project directory (e.g. /tmp, absolute system paths) are rejected. Not for URLs.",
   inputSchema: InputSchema,
   isReadOnly: () => true,
   async call(input, ctx) {

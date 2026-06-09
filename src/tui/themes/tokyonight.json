@@ -238,6 +238,16 @@
     "syntaxPunctuation": {
       "dark": "darkStep12",
       "light": "lightStep12"
-    }
+    },
+    "moodContent": { "dark": "darkGreen", "light": "lightGreen" },
+    "moodCurious": { "dark": "darkCyan", "light": "lightCyan" },
+    "moodPlayful": { "dark": "darkPurple", "light": "lightPurple" },
+    "moodExcited": { "dark": "darkYellow", "light": "lightYellow" },
+    "moodSleepy": { "dark": "darkStep11", "light": "lightStep11" },
+    "moodDreamy": { "dark": "darkStep9", "light": "lightStep9" },
+    "moodSmug": { "dark": "darkOrange", "light": "lightOrange" },
+    "moodBored": { "dark": "darkStep11", "light": "lightStep11" },
+    "moodGrumpy": { "dark": "darkRed", "light": "lightRed" },
+    "moodProud": { "dark": "darkYellow", "light": "lightYellow" }
   }
 }

@@ -1,14 +1,19 @@
 import { queryMatches } from "@core/treesitter/engine"
 import type { Diagnostic, RulePack } from "../types"
 
+// Positional .shift(-n) and keyword .shift(periods=-n) both peek the future.
 const LOOKAHEAD_SHIFT = `(call
   function: (attribute attribute: (identifier) @m (#eq? @m "shift"))
-  arguments: (argument_list (unary_operator "-" (integer)))) @hit`
+  arguments: (argument_list [
+    (unary_operator "-" (integer))
+    (keyword_argument value: (unary_operator "-" (integer)))
+  ])) @hit`
 
-// Two patterns: the slice form (df.iloc[i+1:]) wraps the binary_operator in a (slice ...) node.
+// Forward indexing reads a future bar. Right operand may be an integer literal (i+1) or a
+// variable stride (i+window). The slice form (df.iloc[i+1:]) wraps the binary_operator in a slice.
 const FUTURE_INDEX = `[
-  (subscript subscript: (binary_operator operator: "+" right: (integer))) @hit
-  (subscript subscript: (slice (binary_operator operator: "+" right: (integer)))) @hit
+  (subscript subscript: (binary_operator operator: "+" right: [(integer) (identifier)])) @hit
+  (subscript subscript: (slice (binary_operator operator: "+" right: [(integer) (identifier)]))) @hit
 ]`
 
 // fit-before-split needs cross-node order reasoning — handled in refine().
@@ -56,12 +61,14 @@ export const quantBiasPack: RulePack = {
       .filter((x): x is { name: string; at: number } => x !== null)
 
     const extra: Diagnostic[] = []
+    const flagged = new Set<number>()
     for (const m of fits) {
       const fitCap = m.captures.find((c) => c.name === "fit")
       const argCap = m.captures.find((c) => c.name === "arg")
-      if (!fitCap || !argCap) continue
+      if (!fitCap || !argCap || flagged.has(fitCap.span.byteStart)) continue
       const leaks = splitArgs.some((s) => s.name === argCap.span.text && s.at > fitCap.span.byteStart)
       if (leaks) {
+        flagged.add(fitCap.span.byteStart)
         extra.push({
           ruleId: "bias/fit-before-split",
           severity: "warn",

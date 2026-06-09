@@ -1,10 +1,11 @@
 import { type OrderAuditRecord, readOrderAudit } from "@core/risk/audit"
 import { projectHash } from "@core/storage/paths"
-import { useKeyboard, useRenderer } from "@opentui/solid"
-import { useTheme } from "@tui/context/theme"
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { useRenderer } from "@opentui/solid"
+import { ModalFrame, ModalList, useListNav, useModalKeyboard } from "@tui/ui/modal"
+import { createMemo, createSignal } from "solid-js"
 
 type View = "menu" | "positions" | "log"
+type Item = { kind: "menu"; key: View; label: string } | { kind: "row"; label: string; value: string }
 
 function hhmm(ts: number): string {
   const d = new Date(ts)
@@ -33,7 +34,6 @@ function summarize(r: OrderAuditRecord): string {
  * positions reconstructed from `fill` records + the raw order log.
  */
 export function PositionsModal(props: { onClose: () => void }) {
-  const { theme } = useTheme()
   const renderer = useRenderer()
   let records: OrderAuditRecord[] = []
   try {
@@ -41,10 +41,7 @@ export function PositionsModal(props: { onClose: () => void }) {
   } catch {
     records = []
   }
-
   const [view, setView] = createSignal<View>("menu")
-  const [cursor, setCursor] = createSignal(0)
-  const rerender = () => renderer.requestRender()
 
   const positions = createMemo(() => {
     const m = new Map<string, number>()
@@ -60,7 +57,7 @@ export function PositionsModal(props: { onClose: () => void }) {
     { key: "log", label: `Order log (${records.length})` },
   ])
 
-  function rows(): { label: string; value: string }[] {
+  function detailRows(): { label: string; value: string }[] {
     if (view() === "positions") {
       const p = positions()
       return p.length
@@ -75,89 +72,51 @@ export function PositionsModal(props: { onClose: () => void }) {
     return []
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: @opentui keyboard event is untyped (matches SettingsModal)
-  useKeyboard((e: any) => {
-    if (e.name === "escape" || (e.name === "left" && view() !== "menu")) {
-      e.preventDefault?.()
+  const items = (): Item[] =>
+    view() === "menu"
+      ? MENU().map((m) => ({ kind: "menu" as const, key: m.key, label: m.label }))
+      : detailRows().map((r) => ({ kind: "row" as const, label: r.label, value: r.value }))
+
+  const nav = useListNav<Item>({
+    items,
+    onSelect: (item) => {
+      if (item.kind === "menu") {
+        setView(item.key)
+        nav.setCursor(0)
+        renderer.requestRender()
+      }
+    },
+    onKey: (e) => {
+      if (e.name === "left" && view() !== "menu") {
+        setView("menu")
+        nav.setCursor(0)
+        renderer.requestRender()
+        return true
+      }
+      return false
+    },
+    onEscape: () => {
       if (view() === "menu") props.onClose()
       else {
         setView("menu")
-        setCursor(0)
+        nav.setCursor(0)
+        renderer.requestRender()
       }
-      rerender()
-      return
-    }
-    const len = view() === "menu" ? MENU().length : rows().length
-    if (e.name === "up") {
-      e.preventDefault?.()
-      setCursor((c) => Math.max(0, c - 1))
-      rerender()
-      return
-    }
-    if (e.name === "down") {
-      e.preventDefault?.()
-      setCursor((c) => Math.min(Math.max(0, len - 1), c + 1))
-      rerender()
-      return
-    }
-    if (view() === "menu" && (e.name === "return" || e.name === "kpenter")) {
-      e.preventDefault?.()
-      const m = MENU()[cursor()]
-      if (m) {
-        setView(m.key)
-        setCursor(0)
-        rerender()
-      }
-    }
+    },
   })
+  useModalKeyboard({ nav })
 
-  const WINDOW = 14
-  function windowed<T>(items: T[]): { slice: T[]; offset: number } {
-    if (items.length <= WINDOW) return { slice: items, offset: 0 }
-    const off = Math.min(Math.max(0, cursor() - Math.floor(WINDOW / 2)), items.length - WINDOW)
-    return { slice: items.slice(off, off + WINDOW), offset: off }
-  }
+  const title = () => (view() === "menu" ? "📈 Trading" : view() === "positions" ? "📈 Positions" : "📈 Order log")
+  const footer = () => (view() === "menu" ? "↑/↓ move · Enter open · Esc close" : "↑/↓ scroll · Esc back")
 
   return (
-    <box flexDirection="column" minWidth={62} gap={0}>
-      <text fg={theme.accent}>
-        {view() === "menu" ? "📈  Trading" : view() === "positions" ? "📈  Positions" : "📈  Order log"}
-      </text>
-      <box height={1} minHeight={0} />
-
-      <Show
-        when={view() !== "menu"}
-        fallback={
-          <box flexDirection="column">
-            <For each={MENU()}>
-              {(m, i) => {
-                const sel = () => i() === cursor()
-                return (
-                  <text fg={sel() ? theme.accent : theme.text} bg={sel() ? theme.backgroundElement : undefined}>
-                    {(sel() ? "› " : "  ") + m.label}
-                  </text>
-                )
-              }}
-            </For>
-          </box>
-        }
-      >
-        <box flexDirection="column">
-          <For each={windowed(rows()).slice}>
-            {(r) => (
-              <box flexDirection="row" justifyContent="space-between" gap={2}>
-                <text fg={theme.text}>{`  ${r.label}`}</text>
-                <text fg={theme.textMuted}>{r.value}</text>
-              </box>
-            )}
-          </For>
-        </box>
-      </Show>
-
-      <box height={1} minHeight={0} />
-      <text fg={theme.textMuted}>
-        {view() === "menu" ? "↑/↓ move · Enter open · Esc close" : "↑/↓ scroll · Esc back"}
-      </text>
-    </box>
+    <ModalFrame title={title()} footer={footer()}>
+      <ModalList
+        window={nav.window()}
+        selectable={(it) => it.kind === "menu"}
+        label={(it) => it.label}
+        right={(it) => (it.kind === "row" ? it.value : "")}
+      />
+    </ModalFrame>
   )
 }

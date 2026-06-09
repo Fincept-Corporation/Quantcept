@@ -82,7 +82,10 @@ export function parseDiagram(src: string): DiagramSpec {
       switch (directive.key) {
         case "type":
           if (!DIAGRAM_TYPES.includes(directive.value as DiagramType))
-            throw new DiagramError(`unknown diagram type "${directive.value}" (expected flow|stack|tree|taccount)`, lineNo)
+            throw new DiagramError(
+              `unknown diagram type "${directive.value}" (expected flow|stack|tree|taccount)`,
+              lineNo,
+            )
           type = directive.value as DiagramType
           break
         case "title":

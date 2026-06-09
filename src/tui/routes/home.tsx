@@ -1,14 +1,16 @@
 import type { LearningsNetworkStats } from "@core/fincept"
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
-import { chatStoresCloud, cloudSummaries, localSummaries, type SessionSummary } from "@tui/components/sessions/history"
+import { VERSION } from "@shared/version"
 import { BuddySprite } from "@tui/buddy/BuddySprite"
 import { AgentPicker } from "@tui/components/AgentPicker"
 import { Logo } from "@tui/components/logo"
 import { Prompt } from "@tui/components/prompt"
+import { chatStoresCloud, cloudSummaries, localSummaries, type SessionSummary } from "@tui/components/sessions/history"
 import { ResumeModal } from "@tui/components/sessions/ResumeModal"
 import { useAgents } from "@tui/context/agents"
 import { useArgs } from "@tui/context/args"
 import { useAuth } from "@tui/context/auth"
+import { useAutoAccept } from "@tui/context/auto-accept"
 import { useRoute } from "@tui/context/route"
 import { useStorage } from "@tui/context/storage"
 import { useTheme } from "@tui/context/theme"
@@ -19,11 +21,11 @@ import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-j
 
 const placeholder = {
   normal: [
-    "Analyze NIFTY 50 performance this quarter",
-    "What's the risk exposure on my portfolio?",
-    "Show me top gainers today",
-    "Compare HDFC Bank vs ICICI Bank",
-    "Calculate the Sharpe ratio of my holdings",
+    "Compare NVIDIA and AMD fundamentals",
+    "What moved the S&P 500 today?",
+    "Summarize Apple's latest 10-K",
+    "Calculate the Sharpe ratio of my portfolio",
+    "Screen for undervalued tech stocks",
   ],
   shell: ["ls -la", "git status", "pwd"],
 }
@@ -69,6 +71,7 @@ export function Home() {
   const agents = useAgents()
   const toast = useToast()
   const dialog = useDialog()
+  const autoAccept = useAutoAccept()
   const renderer = useRenderer()
   const dimensions = useTerminalDimensions()
   const promptMaxWidth = () => {
@@ -79,14 +82,32 @@ export function Home() {
   const storage = useStorage()
   const args = useArgs()
   // Recent chats for the inline list — cloud conversations or local sessions.
-  // Loaded on mount (Home remounts each time it's shown, so it stays fresh).
+  // Loaded on mount and re-loaded whenever the resume overlay closes (a delete there
+  // would otherwise leave this list stale — the overlay doesn't remount Home).
   const [recent, setRecent] = createSignal<SessionSummary[]>([])
+
+  // Hoisted so openResume's onClose can refresh after a possible deletion in the modal.
+  function loadRecent() {
+    if (chatStoresCloud()) {
+      void cloudSummaries().then((s) => {
+        setRecent(s.slice(0, 3))
+        renderer.requestRender()
+      })
+    } else {
+      setRecent(localSummaries(storage.listSessions(storage.projectHashFor(process.cwd()))).slice(0, 3))
+      renderer.requestRender()
+    }
+  }
 
   function openResume() {
     if (dialog.active()) return
     dialog.replace(() => (
       <ResumeModal
-        onClose={() => dialog.clear()}
+        onClose={() => {
+          dialog.clear()
+          // Reflect any chat deleted inside the modal back onto the Home Recent list.
+          loadRecent()
+        }}
         onResume={(id) => {
           dialog.clear()
           if (chatStoresCloud()) {
@@ -158,11 +179,7 @@ export function Home() {
   let timer: ReturnType<typeof setInterval>
   onMount(() => {
     if (args.resume === true) openResume()
-    if (chatStoresCloud()) {
-      void cloudSummaries().then((s) => setRecent(s.slice(0, 5)))
-    } else {
-      setRecent(localSummaries(storage.listSessions(storage.projectHashFor(process.cwd()))).slice(0, 5))
-    }
+    loadRecent()
     void loadStats()
     timer = setInterval(() => {
       setTick((t) => {
@@ -225,6 +242,7 @@ export function Home() {
             placeholders={placeholder}
             agent={agentName()}
             onOpenAgentPicker={openAgentPicker}
+            autoAccept={autoAccept.enabled()}
             onSubmit={(text) => {
               const sessionID = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
               route.navigate({ type: "session", sessionID, initialMessage: text, initialAgent: agentName() })
@@ -233,23 +251,28 @@ export function Home() {
           />
         </box>
         <Show when={recent().length > 0}>
-          <box width="100%" maxWidth={promptMaxWidth()} flexDirection="column" flexShrink={0} paddingTop={1}>
+          <box width="100%" maxWidth={promptMaxWidth()} flexDirection="column" flexShrink={0} paddingTop={2}>
             <text fg={theme.textMuted}>Recent</text>
-            <For each={recent()}>
-              {(s) => (
-                <box flexDirection="row" justifyContent="space-between" gap={2}>
-                  <text fg={theme.text}>{s.title.slice(0, 48)}</text>
-                  <text fg={theme.textMuted}>{s.sub}</text>
-                </box>
-              )}
-            </For>
-            <text fg={theme.textMuted}>more… (Ctrl+R or /resume)</text>
+            <box paddingTop={1} flexDirection="column">
+              <For each={recent()}>
+                {(s) => (
+                  <box flexDirection="row" justifyContent="space-between" gap={2}>
+                    <text fg={theme.text}>{s.title.slice(0, 48)}</text>
+                    <text fg={theme.textMuted}>{s.sub}</text>
+                  </box>
+                )}
+              </For>
+            </box>
+            <box paddingTop={1}>
+              <text fg={theme.textMuted}>more… (Ctrl+R or /resume)</text>
+            </box>
           </box>
         </Show>
-        <box height={1} minHeight={0} flexShrink={1} />
+        <box height={2} minHeight={1} flexShrink={1} />
         <box flexShrink={0} width="100%" maxWidth={promptMaxWidth()} flexDirection="row" justifyContent="center">
           <text fg={theme.textMuted}>
-            <span style={{ fg: theme.accent }}>{"● "}</span>Quantcept v0.1.0{" · "}
+            <span style={{ fg: theme.accent }}>{"● "}</span>Quantcept v{VERSION}
+            {" · "}
             Ctrl+Q exit{" · "}Enter submit{" · "}Shift+Enter newline
           </text>
         </box>

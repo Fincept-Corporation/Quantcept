@@ -8,29 +8,56 @@ Quantcept is a TUI (terminal UI) application built with [Bun](https://bun.sh), [
 
 ## Quick Start
 
-### From source (recommended while in development)
+### Install (npm)
+
+```bash
+npm install -g quantcept
+quantcept
+```
+
+Works in PowerShell, cmd, or any shell once installed. The launcher resolves a
+prebuilt binary for your platform (macOS arm64/x64, Linux x64, Windows x64). On
+first run, Quantcept walks you through a quick login (email + one-time code); your
+key is stored at `~/.quantcept/settings.json`. **No API key or `.env` is required** —
+chat generation runs in the cloud by default.
+
+### From source (for development)
 
 ```bash
 git clone https://github.com/Fincept-Corporation/Quantcept.git
 cd Quantcept
 bun install
-cp .env.example .env   # then edit .env with your provider key
+cp .env.example .env   # optional — only for on-device "local" generation
 bun run dev
 ```
 
-### Configure your provider
+### Optional: on-device ("local") generation
 
-Quantcept is provider-agnostic. Set these in `.env` (or your shell environment):
+By default the assistant generates in the cloud, so most users need nothing beyond
+login. If you switch generation to **local** (in Settings), the on-device agent loop
+calls an LLM provider you configure. Set these in the environment (dev) or
+`~/.quantcept/settings.json`:
 
-| Variable        | Required | Description                                                        |
-| --------------- | -------- | ------------------------------------------------------------------ |
-| `LLM_API_KEY`   | yes      | Your LLM provider API key.                                         |
-| `LLM_BASE_URL`  | yes      | Provider base URL. Anthropic-compatible or OpenAI-compatible.      |
-| `LLM_MODEL`     | no       | Model name (defaults to a sensible value).                         |
+| Variable        | Description                                                        |
+| --------------- | ------------------------------------------------------------------ |
+| `LLM_API_KEY`   | Your LLM provider API key (local generation only).                 |
+| `LLM_BASE_URL`  | Provider base URL. Anthropic-compatible or OpenAI-compatible.      |
+| `LLM_MODEL`     | Model name (optional; defaults to a sensible value).               |
 
 The `anthropic-messages` adapter works with Anthropic, MiniMax, and any
 Anthropic-compatible gateway. The `openai-chat` adapter works with
 OpenAI-compatible endpoints.
+
+> Note: the compiled binary does **not** read `.env` files — that's a dev-only
+> convenience. Installed users configure via login and `~/.quantcept/settings.json`.
+
+### Optional prerequisites
+
+A few agent tools shell out to external programs and degrade gracefully if absent:
+
+- **Finance tools** (income / balance sheet / cashflow / price history) need
+  **Python 3 + `yfinance`** on your `PATH` — `pip install yfinance`. Without it,
+  those tools return a clear error; nothing else is affected.
 
 ## Features
 

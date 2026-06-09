@@ -48,6 +48,9 @@ export const { use: useStorage, provider: StorageProvider } = createSimpleContex
       listSessions(projectHash: string): SessionRow[] {
         return guard(() => store!.listSessions(projectHash), [])
       },
+      deleteSession(sessionId: string): void {
+        guard(() => store!.deleteSession(sessionId), undefined)
+      },
       ready: true,
     }
   },

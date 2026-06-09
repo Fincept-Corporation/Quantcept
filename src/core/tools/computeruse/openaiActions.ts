@@ -49,7 +49,12 @@ export function oaiActionToPrimitives(a: OAIAction, toPhys: (x: number, y: numbe
     case "screenshot":
       return []
     case "click":
-      return [...hold, moveTo(a.x ?? 0, a.y ?? 0), { kind: "button", button: btn(a.button), direction: "click" }, ...release]
+      return [
+        ...hold,
+        moveTo(a.x ?? 0, a.y ?? 0),
+        { kind: "button", button: btn(a.button), direction: "click" },
+        ...release,
+      ]
     case "double_click":
       return [
         ...hold,
@@ -79,7 +84,11 @@ export function oaiActionToPrimitives(a: OAIAction, toPhys: (x: number, y: numbe
     case "drag": {
       const pts = (a.path ?? []).map(point)
       if (pts.length < 2) return []
-      const out: Primitive[] = [...hold, moveTo(pts[0]![0], pts[0]![1]), { kind: "button", button: "left", direction: "press" }]
+      const out: Primitive[] = [
+        ...hold,
+        moveTo(pts[0]![0], pts[0]![1]),
+        { kind: "button", button: "left", direction: "press" },
+      ]
       for (let i = 1; i < pts.length; i++) out.push(moveTo(pts[i]![0], pts[i]![1]))
       out.push({ kind: "button", button: "left", direction: "release" }, ...release)
       return out

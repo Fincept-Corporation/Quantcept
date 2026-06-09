@@ -1,16 +1,7 @@
 import type { FinceptClient, FinceptResult } from "./client"
+import { queryString } from "./http"
 
 type Query = Record<string, string | number | boolean | undefined>
-
-function qs(q?: Query): string {
-  if (!q) return ""
-  const u = new URLSearchParams()
-  for (const [k, v] of Object.entries(q)) {
-    if (v !== undefined && v !== "") u.set(k, String(v))
-  }
-  const s = u.toString()
-  return s ? `?${s}` : ""
-}
 
 /**
  * Base paths for every per-user cloud-sync domain, verified against the Go
@@ -142,7 +133,7 @@ export class SyncResource<T = unknown, C = Record<string, unknown>, L = T[]> {
   }
 
   list(query?: Query) {
-    return this.req<L>("GET", qs(query))
+    return this.req<L>("GET", queryString(query))
   }
   get(id: string) {
     return this.req<T>("GET", `/${encodeURIComponent(id)}`)

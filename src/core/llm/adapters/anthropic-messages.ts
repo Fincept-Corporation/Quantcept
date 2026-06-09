@@ -84,6 +84,58 @@ export function assembleStreamEvents(
   return { text, blocks, inputTokens, outputTokens, stopReason }
 }
 
+/**
+ * Read an Anthropic SSE stream and surface text + usage as it arrives.
+ *
+ * Critically, `onChunk` fires for each `text_delta` **inside** the read loop, so
+ * the UI streams token-by-token instead of receiving the whole response in one
+ * burst at the end. The accumulated events are still replayed through
+ * {@link assembleStreamEvents} (with a no-op chunk sink) once the stream closes
+ * to assemble the final text, tool-use blocks, token counts, and stop reason.
+ */
+export async function consumeAnthropicStream(response: Response, handlers: StreamHandlers): Promise<ChatResult> {
+  const reader = response.body?.getReader()
+  if (!reader) throw new ProviderError("No response body")
+  const decoder = new TextDecoder()
+  let buffer = ""
+  const events: Array<Record<string, any>> = []
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split("\n")
+    buffer = lines.pop() ?? ""
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue
+      const data = line.slice(6).trim()
+      if (data === "[DONE]") continue
+      try {
+        const event = JSON.parse(data)
+        events.push(event)
+        // Emit text the moment it streams in — this is what makes the live render incremental.
+        if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+          handlers.onChunk?.(event.delta.text)
+        } else if (event.type === "message_start" && event.message?.usage) {
+          handlers.onTokens?.(event.message.usage.input_tokens ?? 0, 0)
+        } else if (event.type === "message_delta" && event.usage) {
+          handlers.onTokens?.(event.usage.input_tokens ?? 0, event.usage.output_tokens ?? 0)
+        }
+      } catch {
+        // skip malformed SSE lines
+      }
+    }
+  }
+  // Re-assemble for the final result; onChunk already fired live above, so use a no-op sink here.
+  const r = assembleStreamEvents(events, () => {})
+  return {
+    text: r.text,
+    blocks: r.blocks.length ? r.blocks : undefined,
+    inputTokens: r.inputTokens,
+    outputTokens: r.outputTokens,
+    stopReason: r.stopReason,
+  }
+}
+
 export class AnthropicMessagesAdapter implements Provider {
   readonly id = "anthropic-messages"
   constructor(private readonly config: ProviderConfig) {
@@ -143,42 +195,7 @@ export class AnthropicMessagesAdapter implements Provider {
     }
   }
 
-  private async consumeStream(response: Response, handlers: StreamHandlers): Promise<ChatResult> {
-    const reader = response.body?.getReader()
-    if (!reader) throw new ProviderError("No response body")
-    const decoder = new TextDecoder()
-    let buffer = ""
-    const events: Array<Record<string, any>> = []
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split("\n")
-      buffer = lines.pop() ?? ""
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue
-        const data = line.slice(6).trim()
-        if (data === "[DONE]") continue
-        try {
-          const event = JSON.parse(data)
-          events.push(event)
-          if (event.type === "message_start" && event.message?.usage) {
-            handlers.onTokens?.(event.message.usage.input_tokens ?? 0, 0)
-          } else if (event.type === "message_delta" && event.usage) {
-            handlers.onTokens?.(event.usage.input_tokens ?? 0, event.usage.output_tokens ?? 0)
-          }
-        } catch {
-          // skip malformed SSE lines
-        }
-      }
-    }
-    const r = assembleStreamEvents(events, (t) => handlers.onChunk?.(t))
-    return {
-      text: r.text,
-      blocks: r.blocks.length ? r.blocks : undefined,
-      inputTokens: r.inputTokens,
-      outputTokens: r.outputTokens,
-      stopReason: r.stopReason,
-    }
+  private consumeStream(response: Response, handlers: StreamHandlers): Promise<ChatResult> {
+    return consumeAnthropicStream(response, handlers)
   }
 }

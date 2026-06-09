@@ -1,7 +1,7 @@
 import { logger } from "@shared/logger"
 import fs from "fs"
 import { projectSettingsFile, userSettingsFile } from "./paths"
-import { type Config, ConfigSchema, defaultConfig } from "./schema"
+import { type Config, ConfigSchema, defaultConfig, FINCEPT_API_URL } from "./schema"
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
 
@@ -30,15 +30,23 @@ export function applyEnvOverrides(config: Config, env: Record<string, string | u
   if (next.visionProvider && !next.visionProvider.apiKey && env.OPENAI_API_KEY) {
     next.visionProvider = { ...next.visionProvider, apiKey: env.OPENAI_API_KEY }
   }
-  // Fincept backend base URL + key may come from env (e.g. CI, or a shared dev key).
-  if (env.FINCEPT_BASE_URL || env.FINCEPT_API_KEY) {
-    next.fincept = {
-      ...next.fincept,
-      ...(env.FINCEPT_BASE_URL ? { baseUrl: env.FINCEPT_BASE_URL } : {}),
-      ...(env.FINCEPT_API_KEY ? { apiKey: env.FINCEPT_API_KEY } : {}),
-    }
+  // The Fincept API key may come from env (e.g. CI, or a shared dev key). The base URL is NOT
+  // env-configurable — the app only ever talks to the hosted backend (see applyFinceptHost).
+  if (env.FINCEPT_API_KEY) {
+    next.fincept = { ...next.fincept, apiKey: env.FINCEPT_API_KEY }
   }
   return next
+}
+
+/**
+ * Force the Fincept base URL to the hosted backend ({@link FINCEPT_API_URL}), regardless of what
+ * any settings file or default carried. This is the single chokepoint that makes the base URL
+ * non-configurable and silently migrates an existing install whose user settings still pin the
+ * old `http://localhost:8000`. Every other fincept field (key, account, seedByDefault) is kept.
+ */
+export function applyFinceptHost(config: Config): Config {
+  if (config.fincept.baseUrl === FINCEPT_API_URL) return config
+  return { ...config, fincept: { ...config.fincept, baseUrl: FINCEPT_API_URL } }
 }
 
 function readJsonIfExists(file: string): DeepPartial<Config> {
@@ -58,5 +66,5 @@ export function loadConfig(cwd?: string): Config {
     readJsonIfExists(projectSettingsFile(cwd)),
   )
   const withEnv = applyEnvOverrides(merged, process.env)
-  return ConfigSchema.parse(withEnv)
+  return applyFinceptHost(ConfigSchema.parse(withEnv))
 }

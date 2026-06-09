@@ -1,9 +1,85 @@
-node_modules/
-.env
-.env.local
-dist/
-*.log
-.DS_Store
+# =============================================================================
+# Quantcept .gitignore
+#
+# Ignore anything generated, machine-local, or secret. Source code, configs,
+# the lockfile (bun.lock), docs, and the committed bin/ launcher stay TRACKED.
+#
+# Note: this controls what enters git. What actually ships to npm is a stricter
+# allowlist — see the "files" field in package.json (bin + postinstall only).
+#
+# IMPORTANT: .gitignore has NO inline comments — a `#` only starts a comment at
+# the START of a line. Keep every comment on its own line.
+# =============================================================================
 
-# computer-use audit log (may contain screenshot paths)
-.quantcept/computeruse-audit.log
+# --- Dependencies ------------------------------------------------------------
+node_modules/
+.bun/
+
+# --- Secrets & local environment (NEVER commit) ------------------------------
+# Real keys live in the environment or ~/.quantcept/settings.json. Only the
+# example template is tracked.
+.env
+.env.*
+!.env.example
+# npm auth token belongs in ~/.npmrc (CI writes it); never a repo-level .npmrc.
+.npmrc
+
+# --- Build output / compiled artifacts ---------------------------------------
+# Per-platform compiled binaries (each published as its own npm package).
+dist/
+# TypeScript incremental build info.
+*.tsbuildinfo
+# npm pack / publish tarballs.
+*.tgz
+
+# Compiled & linked binaries that `bun run build` and the postinstall selector
+# drop into bin/ at build/install time (quantcept.exe, learnings[.exe],
+# quantcept-computeruse[.exe], ...). Keep ONLY the committed Node launcher.
+/bin/*
+!/bin/quantcept
+
+# Rust computer-use sidecar build output (also has sidecar/computeruse/.gitignore).
+sidecar/**/target/
+
+# --- Python sidecar artifacts ------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- Local runtime state & per-machine config --------------------------------
+# User/project settings, auth token, and session store.
+.quantcept/
+# Claude Code: a shared .claude/settings.json may be committed; per-developer
+# local overrides must not be.
+.claude/settings.local.json
+.claude/*.local.json
+
+# --- Logs --------------------------------------------------------------------
+*.log
+logs/
+
+# --- Test / coverage output --------------------------------------------------
+coverage/
+.nyc_output/
+
+# --- Caches ------------------------------------------------------------------
+.cache/
+.turbo/
+
+# --- Editor / IDE ------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- Temp files --------------------------------------------------------------
+*.tmp
+*.bak
+.tmp/
+
+# --- OS junk -----------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini

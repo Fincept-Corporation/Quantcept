@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { FinceptChat } from "@core/fincept/chat"
+import { type CloudMessage, FinceptChat, partitionResumeMessages } from "@core/fincept/chat"
 import type { FinceptClient, FinceptRequest } from "@core/fincept/client"
+
+function msg(role: "user" | "assistant", status: string, text: string, id = `${role}-${text}`): CloudMessage {
+  return { id, role, status, parts: [{ idx: 0, type: "text", text }], created_at: "2026-06-05T00:00:00Z" }
+}
 
 function stub() {
   const calls: FinceptRequest[] = []
@@ -58,5 +62,50 @@ describe("FinceptChat request shaping", () => {
       path: "/v1/chat/conversations/cnv_1/import",
       body: { messages: [{ role: "user", content: "hi" }, { role: "assistant", content: "yo" }] },
     })
+  })
+})
+
+describe("partitionResumeMessages (resume failed-turn handling)", () => {
+  test("drops an unanswered (failed-reply) turn and reloads it as the retry question", () => {
+    const { rendered, lastFailedQuestion } = partitionResumeMessages([
+      msg("user", "complete", "first ok"),
+      msg("assistant", "complete", "answer 1"),
+      msg("user", "complete", "rites price?"),
+      msg("assistant", "failed", ""), // generation failed
+    ])
+    expect(rendered.map((m) => m.role)).toEqual(["user", "assistant"]) // only the answered turn
+    expect(rendered[0]!.parts[0]!.text).toBe("first ok")
+    expect(lastFailedQuestion).toBe("rites price?")
+  })
+
+  test("drops a trailing user message with NO assistant reply", () => {
+    const { rendered, lastFailedQuestion } = partitionResumeMessages([
+      msg("user", "complete", "dangling question"),
+    ])
+    expect(rendered).toHaveLength(0)
+    expect(lastFailedQuestion).toBe("dangling question")
+  })
+
+  test("keeps only the LAST failed question when several pile up", () => {
+    const { rendered, lastFailedQuestion } = partitionResumeMessages([
+      msg("user", "complete", "q1"),
+      msg("assistant", "failed", ""),
+      msg("user", "complete", "q2"),
+      msg("assistant", "failed", ""),
+      msg("user", "complete", "q3"),
+      msg("assistant", "failed", ""),
+    ])
+    expect(rendered).toHaveLength(0) // no dead "You" bubbles
+    expect(lastFailedQuestion).toBe("q3")
+  })
+
+  test("a fully-answered conversation is untouched", () => {
+    const input = [
+      msg("user", "complete", "hello"),
+      msg("assistant", "complete", "hi"),
+    ]
+    const { rendered, lastFailedQuestion } = partitionResumeMessages(input)
+    expect(rendered).toHaveLength(2)
+    expect(lastFailedQuestion).toBe("")
   })
 })

@@ -7,7 +7,14 @@ function oneLine(s: string, max: number): string {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
 }
 
-export function SlashPopover(props: { results: Command[]; argItems?: string[]; selected: number }) {
+export function SlashPopover(props: {
+  results: Command[]
+  argItems?: string[]
+  selected: number
+  /** Count of results scrolled off the top/bottom of the visible window, if any. */
+  moreAbove?: number
+  moreBelow?: number
+}) {
   const { theme } = useTheme()
   const showArgs = () => (props.argItems?.length ?? 0) > 0
   const showCmds = () => !showArgs() && props.results.length > 0
@@ -34,6 +41,9 @@ export function SlashPopover(props: { results: Command[]; argItems?: string[]; s
           </For>
         </Show>
         <Show when={showCmds()}>
+          <Show when={(props.moreAbove ?? 0) > 0}>
+            <text fg={theme.textMuted}>{`  ↑ ${props.moreAbove} more`}</text>
+          </Show>
           <For each={props.results}>
             {(cmd, i) => (
               <box flexDirection="row" backgroundColor={i() === props.selected ? theme.backgroundElement : undefined}>
@@ -46,6 +56,9 @@ export function SlashPopover(props: { results: Command[]; argItems?: string[]; s
               </box>
             )}
           </For>
+          <Show when={(props.moreBelow ?? 0) > 0}>
+            <text fg={theme.textMuted}>{`  ↓ ${props.moreBelow} more`}</text>
+          </Show>
         </Show>
       </box>
     </Show>

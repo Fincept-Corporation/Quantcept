@@ -15,7 +15,7 @@
 // layers drive it; the key is owned by the engine, never by the model.
 
 import type { Database } from "bun:sqlite"
-import { openDb } from "@core/storage/db"
+import { openOwnedDb } from "@core/storage/owned-db"
 
 export interface OutboxRow {
   idempotencyKey: string
@@ -63,13 +63,9 @@ export class OrderOutbox {
   private ownsDb: boolean
 
   constructor(opts?: { db?: Database }) {
-    if (opts?.db) {
-      this.db = opts.db
-      this.ownsDb = false
-    } else {
-      this.db = openDb()
-      this.ownsDb = true
-    }
+    const owned = openOwnedDb(opts?.db)
+    this.db = owned.db
+    this.ownsDb = owned.ownsDb
   }
 
   /**
@@ -78,7 +74,10 @@ export class OrderOutbox {
    * already present (in which case nothing is written). The PRIMARY KEY +
    * ON CONFLICT DO NOTHING makes this atomic and crash-safe.
    */
-  writeIntent(key: string, o: { accountId: string; symbol: string; side: "buy" | "sell"; qty: number }): "new" | "exists" {
+  writeIntent(
+    key: string,
+    o: { accountId: string; symbol: string; side: "buy" | "sell"; qty: number },
+  ): "new" | "exists" {
     const now = Date.now()
     const res = this.db
       .query(
