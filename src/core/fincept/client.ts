@@ -1,5 +1,6 @@
-import { FinceptAuthError, FinceptError, InsufficientCreditsError } from "@shared/errors"
+import { FinceptAuthError, FinceptError, InsufficientCreditsError, SocialLoginRequiredError } from "@shared/errors"
 import { publishCredits } from "./credits"
+import { publishSessionInvalidated } from "./session-events"
 import { fetchTransport, type HttpTransport } from "./http"
 import type { FinceptEnvelope, FinceptSession } from "./types"
 
@@ -93,7 +94,14 @@ export class FinceptClient {
       const code = env.error ?? `http_${res.status}`
       const raw = (env as unknown as Record<string, unknown>).message
       const msg = typeof raw === "string" ? raw : `Request failed (${res.status})`
-      if (res.status === 401) throw new FinceptAuthError(msg)
+      if (res.status === 401) {
+        if (code === "session_invalidated") {
+          publishSessionInvalidated(code)
+          throw new FinceptAuthError(msg)
+        }
+        if (code === "use_social_login") throw new SocialLoginRequiredError(msg)
+        throw new FinceptAuthError(msg)
+      }
       if (res.status === 402 || code === "insufficient_credits") {
         const c = env.credits ?? { required: 0, available: 0 }
         throw new InsufficientCreditsError(c.required, c.available, msg)

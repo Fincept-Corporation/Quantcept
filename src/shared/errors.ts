@@ -43,6 +43,14 @@ export class FinceptAuthError extends FinceptError {
   }
 }
 
+/** 401 use_social_login — the account has no password (created via a social provider). */
+export class SocialLoginRequiredError extends FinceptError {
+  constructor(message = "This account uses social login") {
+    super(message, "use_social_login")
+    this.name = "SocialLoginRequiredError"
+  }
+}
+
 export class InsufficientCreditsError extends FinceptError {
   constructor(
     readonly required: number,
