@@ -1,6 +1,7 @@
 import { FinceptAuthError, FinceptError, InsufficientCreditsError } from "@shared/errors"
 import { publishCredits } from "./credits"
-import type { FinceptEnvelope } from "./types"
+import { fetchTransport, type HttpTransport } from "./http"
+import type { FinceptEnvelope, FinceptSession } from "./types"
 
 export interface FinceptRequest {
   method: "GET" | "POST" | "PUT" | "DELETE"
@@ -28,11 +29,21 @@ export interface FinceptResult<T> {
  * Mirrors the LLM adapter pattern in core/llm/adapters.
  */
 export class FinceptClient {
-  constructor(private readonly baseUrl: string) {}
+  constructor(
+    private readonly baseUrl: string,
+    private readonly transport: HttpTransport = fetchTransport,
+    private readonly session?: () => FinceptSession | undefined,
+  ) {}
+
+  /** X-Session-Token from the bound session getter, when present. */
+  private sessionHeaders(): Record<string, string> {
+    const st = this.session?.()?.sessionToken
+    return st ? { "X-Session-Token": st } : {}
+  }
 
   /** JSON request/response. */
   async request<T>(req: FinceptRequest): Promise<FinceptResult<T>> {
-    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    const headers: Record<string, string> = { "Content-Type": "application/json", ...this.sessionHeaders() }
     if (req.token) headers.Authorization = `Bearer ${req.token}`
     if (req.idempotencyKey) headers["Idempotency-Key"] = req.idempotencyKey
     const res = await this.send(
@@ -48,7 +59,7 @@ export class FinceptClient {
    * adds the correct multipart boundary. Same envelope + error mapping as request().
    */
   async upload<T>(path: string, form: FormData, token?: string, timeoutMs?: number): Promise<FinceptResult<T>> {
-    const headers: Record<string, string> = {}
+    const headers: Record<string, string> = { ...this.sessionHeaders() }
     if (token) headers.Authorization = `Bearer ${token}`
     const res = await this.send(path, { method: "POST", headers, body: form }, timeoutMs ?? 60_000)
     return this.parse<T>(res)
@@ -59,7 +70,7 @@ export class FinceptClient {
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), timeoutMs ?? 30_000)
     try {
-      return await fetch(url, { ...init, signal: ctrl.signal })
+      return await this.transport(url, { ...init, signal: ctrl.signal })
     } catch (e) {
       throw new FinceptError(`network error: ${(e as Error)?.message ?? String(e)}`, "NETWORK")
     } finally {
@@ -80,7 +91,8 @@ export class FinceptClient {
 
     if (!res.ok || env.success === false) {
       const code = env.error ?? `http_${res.status}`
-      const msg = env.message ?? `Request failed (${res.status})`
+      const raw = (env as unknown as Record<string, unknown>).message
+      const msg = typeof raw === "string" ? raw : `Request failed (${res.status})`
       if (res.status === 401) throw new FinceptAuthError(msg)
       if (res.status === 402 || code === "insufficient_credits") {
         const c = env.credits ?? { required: 0, available: 0 }
