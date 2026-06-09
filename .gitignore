@@ -50,10 +50,13 @@ venv/
 # --- Local runtime state & per-machine config --------------------------------
 # User/project settings, auth token, and session store.
 .quantcept/
-# Claude Code: a shared .claude/settings.json may be committed; per-developer
-# local overrides must not be.
-.claude/settings.local.json
-.claude/*.local.json
+# Local-only developer tooling notes and design docs — kept out of the repo.
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+.claude/
+docs/superpowers/
+docs/plans/
 
 # --- Logs --------------------------------------------------------------------
 *.log
