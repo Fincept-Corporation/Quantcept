@@ -39,24 +39,23 @@
     "build": "bun run script/build.ts --single",
     "postinstall": "node ./script/postinstall.mjs"
   },
-  "dependencies": {
+  "comment:deps": "The published package is a self-contained compiled binary + a zero-dep Node launcher. Everything below is BUILD-time only (used to compile the binary), so it lives in devDependencies — installing the published package must NOT pull or native-compile any of these (tree-sitter etc. would need Python + a C toolchain on the user's machine). The platform binary is delivered via optionalDependencies, added by CI at publish time.",
+  "devDependencies": {
+    "@biomejs/biome": "2.4.16",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@opentui/core": "0.2.15",
     "@opentui/keymap": "0.2.15",
     "@opentui/solid": "0.2.15",
+    "@types/bun": "latest",
+    "@types/yargs": "17.0.33",
     "marked": "18.0.4",
     "solid-js": "1.9.12",
     "tree-sitter-bash": "0.25.1",
     "tree-sitter-powershell": "0.26.4",
     "tree-sitter-python": "0.25.0",
+    "typescript": "5.8.3",
     "web-tree-sitter": "0.25.10",
     "yargs": "17.7.2",
     "zod": "^4"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "2.4.16",
-    "@types/bun": "latest",
-    "@types/yargs": "17.0.33",
-    "typescript": "5.8.3"
   }
 }
