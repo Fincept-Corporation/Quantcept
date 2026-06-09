@@ -1,6 +1,6 @@
-import { discoverWithPrecedence, loadManifestDir } from "@core/manifest/load"
 import fs from "node:fs/promises"
 import path from "node:path"
+import { discoverWithPrecedence, loadManifestDir } from "@core/manifest/load"
 import { loadAgentFromFile } from "./agent-load"
 import type { LoadedAgent } from "./agent-manifest"
 

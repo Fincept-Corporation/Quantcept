@@ -1,3 +1,3 @@
-export * from "./types"
+export { type JobGovernor, type JobRunnerDeps, runJob, type Verdict } from "./runner"
 export { JobStore } from "./store"
-export { runJob, type JobRunnerDeps, type Verdict, type JobGovernor } from "./runner"
+export * from "./types"

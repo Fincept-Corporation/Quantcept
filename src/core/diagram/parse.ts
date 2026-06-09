@@ -123,7 +123,6 @@ export function parseDiagram(src: string): DiagramSpec {
     const noteMatch = NOTE_LINE.exec(line)
     if (noteMatch) {
       notes.push(noteMatch[1]!.trim())
-      continue
     }
 
     // Lenient by design: an unrecognized line is skipped, not fatal. A single

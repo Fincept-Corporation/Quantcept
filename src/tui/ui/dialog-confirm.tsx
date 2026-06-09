@@ -2,8 +2,8 @@ import { createTextAttributes } from "@opentui/core"
 import { useKeyboard, useRenderer } from "@opentui/solid"
 import { useTheme } from "@tui/context/theme"
 import { createSignal } from "solid-js"
-import { dialogKeyAction } from "./dialog-keys"
 import type { useDialog } from "./dialog"
+import { dialogKeyAction } from "./dialog-keys"
 
 const BOLD = createTextAttributes({ bold: true })
 

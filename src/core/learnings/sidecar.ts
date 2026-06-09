@@ -87,8 +87,7 @@ export class LearningsSidecar {
         const { done, value } = await reader.read()
         if (done) break
         buf += decoder.decode(value, { stream: true })
-        let nl: number
-        while ((nl = buf.indexOf("\n")) >= 0) {
+        for (let nl = buf.indexOf("\n"); nl >= 0; nl = buf.indexOf("\n")) {
           const line = buf.slice(0, nl).trim()
           buf = buf.slice(nl + 1)
           if (!line) continue
