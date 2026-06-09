@@ -34,14 +34,16 @@ export function startSocialLogin(provider: SocialProvider, deps: SocialLoginDeps
         const apiKey = u.searchParams.get("api_key")
         const sessionToken = u.searchParams.get("session_token") ?? undefined
         const error = u.searchParams.get("error")
-        queueMicrotask(() => {
+        // Defer one macrotask so the Response flushes to the browser before the server stops
+        // (queueMicrotask would run before the I/O poll, dropping the "close this tab" page).
+        setTimeout(() => {
           if (settled) return
           settled = true
           clearTimeout(timer)
           server.stop(true)
           if (apiKey) resolve({ apiKey, sessionToken })
           else reject(new FinceptError(`social login failed: ${error ?? "no_credentials"}`, error ?? "oauth_failed"))
-        })
+        }, 0)
         return new Response(html, { headers: { "Content-Type": "text/html" } })
       },
     })
