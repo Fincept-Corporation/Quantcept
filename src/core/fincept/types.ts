@@ -144,3 +144,14 @@ export interface Subscription {
   subscribed_at: string
   expires_at?: string | null
 }
+
+export interface TelegramLink {
+  deep_link: string
+  token?: string
+  expires_in?: number
+}
+
+export interface TelegramStatus {
+  linked: boolean
+  notify_telegram: boolean
+}
