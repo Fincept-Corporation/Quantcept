@@ -1,8 +1,20 @@
 import { loadConfig } from "@core/config/load"
 import { setUserSettingPath } from "@core/config/persist"
-import { useKeyboard, useRenderer } from "@opentui/solid"
+import { useRenderer } from "@opentui/solid"
+import { openBrowser } from "@shared/open-browser"
 import type { AuthContext } from "@tui/context/auth"
 import { useTheme } from "@tui/context/theme"
+import { formatPlan } from "@tui/format/plan"
+import {
+  computeWindow,
+  type FormSpec,
+  ModalFormView,
+  ModalList,
+  nextIndex,
+  useModalForm,
+  useModalKeyboard,
+  useNotice,
+} from "@tui/ui/modal"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { commitField, configSections, cycleValue, type Field } from "./fields"
 
@@ -22,17 +34,11 @@ type Row = EditRow | ActionRow | InfoRow
 type MenuItem = { key: string; label: string; group: string }
 type MenuLine = { header: string } | { label: string; idx: number }
 
-// Multi-step text input (also used for single-field editing).
-interface InputSpec {
-  title: string
-  fields: { label: string; secret?: boolean }[]
-  onComplete: (values: string[]) => void | Promise<void>
-}
-
 const ACCOUNT_SECTIONS: MenuItem[] = [
   { key: "profile", label: "Profile & key", group: "Account" },
   { key: "security", label: "Security (MFA, password)", group: "Account" },
   { key: "notifications", label: "Notifications", group: "Account" },
+  { key: "telegram", label: "Telegram", group: "Account" },
   { key: "usage", label: "Usage", group: "Account" },
   { key: "transactions", label: "Transactions", group: "Account" },
   { key: "logins", label: "Login history", group: "Account" },
@@ -56,31 +62,19 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
 
   const [view, setView] = createSignal<"menu" | string>("menu")
   const [cursor, setCursor] = createSignal(0)
-  const [notice, setNotice] = createSignal<string | undefined>()
-  const [err, setErr] = createSignal<string | undefined>()
   const [bump, setBump] = createSignal(0) // force re-read of config-backed rows after a commit
 
   // async section rows (usage/transactions/logins/notifications/subscriptions)
   const [asyncRows, setAsyncRows] = createSignal<InfoRow[] | null>(null)
   const [loading, setLoading] = createSignal(false)
 
-  // text input (single-field edit or multi-step action)
-  const [input, setInput] = createSignal<InputSpec | null>(null)
-  const [stepIdx, setStepIdx] = createSignal(0)
-  const [vals, setVals] = createSignal<string[]>([])
-  const [buf, setBuf] = createSignal("")
-
+  const notice = useNotice()
+  const form = useModalForm({ onError: notice.fail })
   const rerender = () => renderer.requestRender()
-  const flash = (m: string) => {
-    setNotice(m)
-    setErr(undefined)
-    rerender()
-  }
-  const fail = (m: string) => {
-    setErr(m)
-    setNotice(undefined)
-    rerender()
-  }
+  // Thin aliases so the section builders (syncRows/loadAsync) stay unchanged.
+  const flash = (m: string) => notice.flash(m)
+  const fail = (e: unknown) => notice.fail(e)
+  const startInput = (spec: FormSpec, prefill = "") => form.start(spec, prefill)
 
   const menu = createMemo<MenuItem[]>(() => [
     ...ACCOUNT_SECTIONS,
@@ -110,15 +104,6 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
     const off = Math.min(Math.max(0, cur - Math.floor(MENU_WINDOW / 2)), lines.length - MENU_WINDOW)
     return lines.slice(off, off + MENU_WINDOW)
   })
-
-  function startInput(spec: InputSpec, prefill = "") {
-    setInput(spec)
-    setStepIdx(0)
-    setVals([])
-    setBuf(prefill)
-    setErr(undefined)
-    rerender()
-  }
 
   // Build the rows for the current non-async section.
   function syncRows(key: string): Row[] {
@@ -175,7 +160,7 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
       }
       return [
         { kind: "info", label: "Email", value: a?.email ?? fincept.email ?? "—" },
-        { kind: "info", label: "Plan", value: a?.account_type ?? "—" },
+        { kind: "info", label: "Plan", value: formatPlan(a?.account_type) ?? "—" },
         { kind: "info", label: "Credits", value: a ? String(a.credit_balance) : "—" },
         {
           kind: "string",
@@ -244,10 +229,41 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
         },
       ]
     }
+    if (key === "telegram") {
+      // status() is async, but action rows only fire in SYNC sections (async sections store
+      // InfoRow[] and don't dispatch run()), so we keep this sync and surface status via flash.
+      const showStatus = async () => {
+        const r = await auth.telegram.status()
+        const d = r.data
+        flash(`Telegram: ${d.linked ? "linked" : "not linked"} · notifications ${d.notify_telegram ? "on" : "off"}`)
+      }
+      return [
+        {
+          kind: "action",
+          label: "Link Telegram",
+          run: async () => {
+            const r = await auth.telegram.link()
+            const link = r.data.deep_link
+            void openBrowser(link)
+            flash(`Opened Telegram — press START in the chat to finish linking. Link: ${link}`)
+          },
+        },
+        {
+          kind: "action",
+          label: "Unlink Telegram",
+          danger: true,
+          run: async () => {
+            await auth.telegram.unlink()
+            flash("Telegram unlinked")
+          },
+        },
+        { kind: "action", label: "Refresh status", run: showStatus },
+      ]
+    }
     if (key === "billing") {
       const a = auth.account
       return [
-        { kind: "info", label: "Plan", value: a?.account_type ?? "—" },
+        { kind: "info", label: "Plan", value: formatPlan(a?.account_type) ?? "—" },
         { kind: "info", label: "Credits", value: a ? String(a.credit_balance) : "—" },
         { kind: "info", label: "Credits expire", value: a?.credits_expire_at ?? "never" },
         {
@@ -344,7 +360,7 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
   async function loadAsync(key: string) {
     setLoading(true)
     setAsyncRows(null)
-    setErr(undefined)
+    notice.clear()
     try {
       if (key === "usage") {
         const r = await auth.accountApi.usage()
@@ -444,8 +460,7 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
   function enterSection(key: string) {
     setView(key)
     setCursor(0)
-    setNotice(undefined)
-    setErr(undefined)
+    notice.clear()
     if (ASYNC.has(key)) void loadAsync(key)
   }
 
@@ -457,128 +472,88 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
   }
 
   // ── keyboard ────────────────────────────────────────────────────────────
-  // biome-ignore lint/suspicious/noExplicitAny: @opentui keyboard event is untyped (matches ThemePicker/CommandPalette)
-  useKeyboard((e: any) => {
-    // text-input mode (editing a field or a multi-step action prompt)
-    const inSpec = input()
-    if (inSpec) {
-      if (e.name === "escape") {
-        e.preventDefault?.()
-        setInput(null)
-        rerender()
-        return
-      }
-      if (e.name === "return" || e.name === "kpenter") {
-        e.preventDefault?.()
-        const collected = [...vals(), buf()]
-        if (stepIdx() < inSpec.fields.length - 1) {
-          setVals(collected)
-          setStepIdx(stepIdx() + 1)
-          setBuf("")
-          rerender()
-        } else {
-          setInput(null)
-          void Promise.resolve(inSpec.onComplete(collected)).catch((x) => fail((x as Error).message))
+  // One router: the form (when open) owns keys + paste; otherwise this onKey runs
+  // the menu/section navigation. Settings keeps its own windowing + typed rows.
+  useModalKeyboard({
+    form,
+    onKey: (e) => {
+      e.preventDefault?.()
+      const list = view() === "menu" ? menu() : rowsForView()
+      if (e.name === "escape" || (e.name === "left" && view() !== "menu")) {
+        if (view() === "menu") props.onClose()
+        else {
+          setView("menu")
+          setCursor(0)
+          setAsyncRows(null)
         }
-        return
-      }
-      if (e.name === "backspace") {
-        e.preventDefault?.()
-        setBuf((b) => b.slice(0, -1))
         rerender()
-        return
+        return true
       }
-      if (typeof e.sequence === "string" && e.sequence.length === 1 && !e.ctrl && !e.meta) {
-        e.preventDefault?.()
-        setBuf((b) => b + e.sequence)
+      if (e.name === "up") {
+        setCursor((c) => nextIndex(list.length, c, -1))
         rerender()
+        return true
       }
-      return
-    }
-
-    // menu vs section navigation
-    const list = view() === "menu" ? menu() : rowsForView()
-    if (e.name === "escape" || (e.name === "left" && view() !== "menu")) {
-      e.preventDefault?.()
-      if (view() === "menu") props.onClose()
-      else {
-        setView("menu")
-        setCursor(0)
-        setAsyncRows(null)
-      }
-      rerender()
-      return
-    }
-    if (e.name === "up") {
-      e.preventDefault?.()
-      setCursor((c) => Math.max(0, c - 1))
-      rerender()
-      return
-    }
-    if (e.name === "down") {
-      e.preventDefault?.()
-      setCursor((c) => Math.min(Math.max(0, list.length - 1), c + 1))
-      rerender()
-      return
-    }
-
-    if (view() === "menu") {
-      if (e.name === "return" || e.name === "kpenter") {
-        e.preventDefault?.()
-        const item = menu()[cursor()]
-        if (item) enterSection(item.key)
+      if (e.name === "down") {
+        setCursor((c) => nextIndex(list.length, c, 1))
         rerender()
+        return true
       }
-      return
-    }
 
-    // inside a section
-    const row = rowsForView()[cursor()]
-    if (!row || row.kind === "info") return
-    if (row.kind === "action") {
+      if (view() === "menu") {
+        if (e.name === "return" || e.name === "kpenter") {
+          const item = menu()[cursor()]
+          if (item) enterSection(item.key)
+          rerender()
+        }
+        return true
+      }
+
+      // inside a section
+      const row = rowsForView()[cursor()]
+      if (!row || row.kind === "info") return true
+      if (row.kind === "action") {
+        if (e.name === "return" || e.name === "kpenter") {
+          void Promise.resolve(row.run()).catch((x) => fail(x))
+        }
+        return true
+      }
+      // EditRow
+      if (row.kind === "enum" || row.kind === "bool") {
+        if (e.name === "left" || e.name === "right") {
+          const f: Field = { label: row.label, kind: row.kind, path: "", get: row.value, choices: row.choices }
+          const next = cycleValue(f, row.value(), e.name === "right" ? 1 : -1)
+          void Promise.resolve(row.commit(next)).catch((x) => fail(x))
+        }
+        if (e.name === "return" || e.name === "kpenter") {
+          const f: Field = { label: row.label, kind: row.kind, path: "", get: row.value, choices: row.choices }
+          void Promise.resolve(row.commit(cycleValue(f, row.value(), 1))).catch((x) => fail(x))
+        }
+        return true
+      }
+      // string | secret | number → open inline editor
       if (e.name === "return" || e.name === "kpenter") {
-        e.preventDefault?.()
-        void Promise.resolve(row.run()).catch((x) => fail((x as Error).message))
+        const r = row
+        startInput(
+          {
+            title: r.label,
+            fields: [{ label: r.label, secret: r.kind === "secret" }],
+            onComplete: ([v]) => r.commit(v ?? ""),
+          },
+          r.value(),
+        )
       }
-      return
-    }
-    // EditRow
-    if (row.kind === "enum" || row.kind === "bool") {
-      if (e.name === "left" || e.name === "right") {
-        e.preventDefault?.()
-        const f: Field = { label: row.label, kind: row.kind, path: "", get: row.value, choices: row.choices }
-        const next = cycleValue(f, row.value(), e.name === "right" ? 1 : -1)
-        void Promise.resolve(row.commit(next)).catch((x) => fail((x as Error).message))
-      }
-      if (e.name === "return" || e.name === "kpenter") {
-        e.preventDefault?.()
-        const f: Field = { label: row.label, kind: row.kind, path: "", get: row.value, choices: row.choices }
-        void Promise.resolve(row.commit(cycleValue(f, row.value(), 1))).catch((x) => fail((x as Error).message))
-      }
-      return
-    }
-    // string | secret | number → open inline editor
-    if (e.name === "return" || e.name === "kpenter") {
-      e.preventDefault?.()
-      const r = row
-      startInput(
-        {
-          title: r.label,
-          fields: [{ label: r.label, secret: r.kind === "secret" }],
-          onComplete: ([v]) => r.commit(v ?? ""),
-        },
-        r.value(),
-      )
-    }
+      return true
+    },
   })
 
   // ── render ────────────────────────────────────────────────────────────────
   const WINDOW = 14
-  function windowed<T>(items: T[]): { slice: T[]; offset: number } {
-    if (items.length <= WINDOW) return { slice: items, offset: 0 }
-    const off = Math.min(Math.max(0, cursor() - Math.floor(WINDOW / 2)), items.length - WINDOW)
-    return { slice: items.slice(off, off + WINDOW), offset: off }
-  }
+  const sectionWindow = createMemo(() => {
+    const rows = rowsForView()
+    const w = computeWindow(rows.length, cursor(), WINDOW)
+    return { slice: rows.slice(w.offset, w.end), offset: w.offset, selected: w.selected }
+  })
 
   function rowText(row: Row): string {
     if (row.kind === "info") return row.value
@@ -597,27 +572,11 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
       </text>
       <box height={1} minHeight={0} />
 
-      <Show when={input()}>
-        {(spec) => (
-          <box flexDirection="column" gap={0}>
-            <text fg={theme.accent}>{spec().title}</text>
-            <For each={vals()}>
-              {(v, i) => (
-                <text fg={theme.textMuted}>
-                  {spec().fields[i()]?.label}: {spec().fields[i()]?.secret ? "••••••" : v}
-                </text>
-              )}
-            </For>
-            <text fg={theme.text}>
-              {spec().fields[stepIdx()]?.label}: {spec().fields[stepIdx()]?.secret ? "•".repeat(buf().length) : buf()}
-              <span style={{ fg: theme.accent }}>▏</span>
-            </text>
-            <text fg={theme.textMuted}>Enter · Esc cancel</text>
-          </box>
-        )}
+      <Show when={form.active()}>
+        <ModalFormView form={form} fields={form.spec()?.fields ?? []} title={form.spec()?.title} />
       </Show>
 
-      <Show when={!input() && view() === "menu"}>
+      <Show when={!form.active() && view() === "menu"}>
         <box flexDirection="column">
           <For each={windowedMenu()}>
             {(line) =>
@@ -636,39 +595,24 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
         </box>
       </Show>
 
-      <Show when={!input() && view() !== "menu"}>
+      <Show when={!form.active() && view() !== "menu"}>
         <Show when={!loading()} fallback={<text fg={theme.textMuted}>Loading…</text>}>
           <box flexDirection="column">
             <Show when={rowsForView().length > 0} fallback={<text fg={theme.textMuted}>Nothing here.</text>}>
-              <For each={windowed(rowsForView()).slice}>
-                {(row, i) => {
-                  const idx = () => windowed(rowsForView()).offset + i()
-                  const sel = () => idx() === cursor()
-                  const marker = row.kind === "action" ? (row.danger ? "⚠ " : "› ") : sel() ? "› " : "  "
-                  const fg = row.kind === "action" && row.danger ? "#ff5555" : sel() ? theme.accent : theme.text
-                  return (
-                    <box
-                      flexDirection="row"
-                      justifyContent="space-between"
-                      gap={2}
-                      backgroundColor={sel() ? theme.backgroundElement : undefined}
-                    >
-                      <text fg={fg}>
-                        {marker}
-                        {row.label}
-                      </text>
-                      <text fg={theme.textMuted}>{rowText(row)}</text>
-                    </box>
-                  )
-                }}
-              </For>
+              <ModalList
+                window={sectionWindow()}
+                label={(row) => row.label}
+                right={(row) => rowText(row)}
+                marker={(row, sel) => (row.kind === "action" ? (row.danger ? "⚠ " : "› ") : sel ? "› " : "  ")}
+                fg={(row, sel) => (row.kind === "action" && row.danger ? "#ff5555" : sel ? theme.accent : theme.text)}
+              />
             </Show>
           </box>
         </Show>
       </Show>
 
       <box height={1} minHeight={0} />
-      <text fg={err() ? "#ff5555" : theme.accent}>{err() ?? notice() ?? ""}</text>
+      <text fg={notice.err() ? "#ff5555" : theme.accent}>{notice.err() ?? notice.notice() ?? ""}</text>
       <text fg={theme.textMuted}>↑/↓ move · Enter edit/act · ‹ ›/Enter cycle · Esc back</text>
     </box>
   )
