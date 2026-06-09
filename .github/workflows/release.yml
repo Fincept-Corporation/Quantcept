@@ -61,7 +61,7 @@ jobs:
       matrix:
         include:
           - { runner: macos-14, target: darwin-arm64 } # Apple Silicon
-          - { runner: macos-13, target: darwin-x64 } # Intel mac
+          - { runner: macos-15-intel, target: darwin-x64 } # Intel mac (macos-13 retired Dec 2025)
           - { runner: ubuntu-latest, target: linux-x64 }
           - { runner: windows-latest, target: windows-x64 }
     runs-on: ${{ matrix.runner }}
