@@ -1,8 +1,9 @@
 import { defaultTextareaKeyBindings, type TextareaRenderable } from "@opentui/core"
-import { useKeyboard, useRenderer } from "@opentui/solid"
+import { useKeyboard, usePaste, useRenderer } from "@opentui/solid"
 import { Logo } from "@tui/components/logo"
 import { useAuth } from "@tui/context/auth"
 import { useTheme } from "@tui/context/theme"
+import { pasteText } from "@tui/platform/paste"
 import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js"
 import { filterCountries } from "./countries"
 
@@ -77,7 +78,9 @@ export function AuthGate() {
   const [values, setValues] = createSignal<Record<string, string>>({})
   const [fieldIndex, setFieldIndex] = createSignal(0)
   const [otpEmail, setOtpEmail] = createSignal("")
-  const [forceLogin, setForceLogin] = createSignal(false)
+  // Active-session take-over: shown when the backend says another device is logged
+  // in. Confirming retries the login with force=true using the entered credentials.
+  const [takeover, setTakeover] = createSignal(false)
   const [notice, setNotice] = createSignal<string | undefined>()
   const [vErr, setVErr] = createSignal<string | undefined>()
   // After an OTP submit: show "success" | "expired" | "error" for ~2s before transitioning.
@@ -129,7 +132,7 @@ export function AuthGate() {
   function start(next: Mode) {
     setValues({})
     setFieldIndex(0)
-    setForceLogin(false)
+    setTakeover(false)
     setNotice(undefined)
     setVErr(undefined)
     setOtpResult(undefined)
@@ -138,6 +141,7 @@ export function AuthGate() {
     setCIndex(0)
     resetSecret()
     auth.clearError()
+    auth.clearInterrupted()
     setMode(next)
     clearInput()
   }
@@ -145,7 +149,7 @@ export function AuthGate() {
   const prompt = createMemo(() => {
     switch (mode()) {
       case "landing":
-        return "Type 'login', 'register', or 'reset', then Enter"
+        return "Type 'login', 'register', 'reset' — or 'google' / 'github' / 'apple' / 'microsoft'"
       case "otp":
         return "Enter the 6-digit code sent to your email"
       default:
@@ -210,15 +214,23 @@ export function AuthGate() {
       return
     }
     if (m === "login") {
-      const res = await auth.login(nextValues.email ?? "", nextValues.password ?? "", forceLogin())
+      const res = await auth.login(nextValues.email ?? "", nextValues.password ?? "", false)
       if (res === "unverified") {
         setOtpEmail(nextValues.email ?? "")
         setNotice("Email not verified — we sent a fresh code. Enter it below.")
         setMode("otp")
         setFieldIndex(0)
         clearInput()
+      } else if (res === "active_session") {
+        // Already signed in elsewhere — offer a one-key take-over (credentials kept).
+        setTakeover(true)
+        rerender()
+      } else if (res === "use_social") {
+        setMode("landing")
+        setNotice("This account uses social login — type google, github, apple, or microsoft.")
+        clearInput()
+        rerender()
       } else if (res === "error") {
-        if ((auth.error ?? "").includes("force_login")) setForceLogin(true)
         setFieldIndex(0)
         rerender()
       }
@@ -240,6 +252,23 @@ export function AuthGate() {
     }
   }
 
+  // Confirm taking over an existing session: retry the login with force=true using
+  // the credentials already entered (no retype). On success the gate unmounts.
+  async function confirmTakeover() {
+    setTakeover(false)
+    const res = await auth.login(values().email ?? "", values().password ?? "", true)
+    if (res === "unverified") {
+      setOtpEmail(values().email ?? "")
+      setNotice("Email not verified — we sent a fresh code. Enter it below.")
+      setMode("otp")
+      setFieldIndex(0)
+      clearInput()
+    } else if (res !== "ok") {
+      setFieldIndex(0)
+      rerender()
+    }
+  }
+
   // Textarea (non-secret) submit.
   async function onSubmit() {
     if (stepKind() !== "text") return // picker/secret handled by useKeyboard
@@ -252,6 +281,11 @@ export function AuthGate() {
       if (c === "register" || c === "r") start("register")
       else if (c === "login" || c === "l") start("login")
       else if (c === "reset" || c === "p") start("reset")
+      else if (c === "google" || c === "github" || c === "apple" || c === "microsoft") {
+        setNotice(`Opening your browser to sign in with ${c}…`)
+        rerender()
+        void auth.socialLogin(c as "google" | "github" | "apple" | "microsoft")
+      }
       return
     }
     if (m === "otp") {
@@ -323,6 +357,17 @@ export function AuthGate() {
   // Keys for the picker + masked secret steps. `text` steps are handled by the textarea.
   // biome-ignore lint/suspicious/noExplicitAny: @opentui keyboard event is untyped (matches other modals)
   useKeyboard((e: any) => {
+    // Active-session take-over confirm: Enter takes over, Esc cancels back to login.
+    if (takeover()) {
+      if (e.name === "return" || e.name === "kpenter") {
+        e.preventDefault?.()
+        void confirmTakeover()
+      } else if (e.name === "escape") {
+        start("login")
+      }
+      return
+    }
+
     const kind = stepKind()
     if (kind === "text") return
 
@@ -373,6 +418,25 @@ export function AuthGate() {
     }
   })
 
+  // Paste support for the masked password and the country filter. The `text` steps
+  // use a focused <textarea> that already handles paste natively, so they're skipped
+  // here; paste is a multi-char event the global useKeyboard above never sees.
+  // biome-ignore lint/suspicious/noExplicitAny: @opentui paste event is untyped
+  usePaste((e: any) => {
+    const kind = stepKind()
+    if (kind === "text") return
+    const text = pasteText(e.bytes)
+    if (!text) return
+    if (kind === "secret") {
+      setPwBuf((s) => s + text)
+      rerender()
+    } else if (kind === "picker") {
+      setCFilter((s) => s + text)
+      setCIndex(0)
+      rerender()
+    }
+  })
+
   const PWIN = 8
   const pickerWindow = createMemo(() => {
     const list = filtered()
@@ -391,6 +455,9 @@ export function AuthGate() {
 
       <Show when={auth.status === "offline"}>
         <text fg={theme.accent}>● Offline — backend unavailable. Using cached session.</text>
+      </Show>
+      <Show when={auth.interruptedReason}>
+        <text fg="#ff5555">{auth.interruptedReason}</text>
       </Show>
       <Show when={notice()}>
         <text fg={theme.accent}>{notice()}</text>
@@ -438,7 +505,7 @@ export function AuthGate() {
       </Show>
 
       {/* Masked secret entry (passwords) */}
-      <Show when={stepKind() === "secret"}>
+      <Show when={stepKind() === "secret" && !takeover()}>
         <text fg={theme.accent}>{confirming() ? "Confirm password — re-enter it" : prompt()}</text>
         <Show when={!confirming() && currentHint()}>
           <text fg={theme.textMuted}>{currentHint()}</text>
@@ -470,7 +537,7 @@ export function AuthGate() {
       </Show>
 
       {/* Single-line text entry for every non-secret, non-picker step */}
-      <Show when={stepKind() === "text" && !otpResult()}>
+      <Show when={stepKind() === "text" && !otpResult() && !takeover()}>
         <text fg={theme.accent}>{prompt()}</text>
         <Show when={currentHint()}>
           <text fg={theme.textMuted}>{currentHint()}</text>
@@ -501,13 +568,17 @@ export function AuthGate() {
       <Show when={auth.error && !otpResult()}>
         <text fg="#ff5555">{auth.error}</text>
       </Show>
-      <Show when={forceLogin()}>
-        <text fg={theme.accent}>Another session is active — re-enter to take over (force login).</text>
+      <Show when={takeover()}>
+        <box flexDirection="column" alignItems="center" paddingTop={1}>
+          <text fg={theme.accent}>You're already signed in on another device.</text>
+          <text fg={theme.text}>Press Enter to sign out there and continue here · Esc to cancel.</text>
+        </box>
       </Show>
 
       <box height={1} minHeight={0} />
       <text fg={theme.textMuted}>
         <Switch>
+          <Match when={takeover()}>Enter take over here · Esc cancel · Ctrl+Q quit</Match>
           <Match when={stepKind() === "picker"}>Type to filter · ↑/↓ · Enter confirm · Esc cancel · Ctrl+Q quit</Match>
           <Match when={stepKind() === "secret"}>Enter submit (hidden) · Esc cancel · Ctrl+Q quit</Match>
           <Match when={mode() === "landing"}>Ctrl+Q quit</Match>
