@@ -248,6 +248,7 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
             flash(`Opened Telegram — press START in the chat to finish linking. Link: ${link}`)
           },
         },
+        { kind: "action", label: "Refresh status", run: showStatus },
         {
           kind: "action",
           label: "Unlink Telegram",
@@ -257,7 +258,6 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
             flash("Telegram unlinked")
           },
         },
-        { kind: "action", label: "Refresh status", run: showStatus },
       ]
     }
     if (key === "billing") {
