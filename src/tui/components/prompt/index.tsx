@@ -2,10 +2,13 @@ import { loadHistory, pushHistory } from "@core/storage"
 import type { Command } from "@ext/commands/types"
 import { type BorderCharacters, defaultTextareaKeyBindings, type TextareaRenderable } from "@opentui/core"
 import { useRenderer } from "@opentui/solid"
+import { useAuth } from "@tui/context/auth"
 import { useCommands } from "@tui/context/command"
 import { useExit } from "@tui/context/exit"
 import { useTheme } from "@tui/context/theme"
-import { createMemo, createSignal, type JSX, onCleanup, onMount } from "solid-js"
+import { formatPlan, planTier } from "@tui/format/plan"
+import { useDialog } from "@tui/ui/dialog"
+import { createEffect, createMemo, createSignal, type JSX, onCleanup, onMount } from "solid-js"
 import { type HistoryState, historyNext, historyPrev } from "./history"
 import { SlashPopover } from "./slash-popover"
 
@@ -47,14 +50,29 @@ interface PromptProps {
   placeholders?: { normal: string[]; shell: string[] }
   onSubmit?: (text: string) => void
   hint?: JSX.Element
+  /** Rotating one-line tips shown (in place of `hint`) while the input is idle. */
+  tips?: string[]
   right?: JSX.Element
   status?: string
   messageCount?: number
   tokenCount?: number
   /** Active agent name shown in the footer; undefined when on the default assistant. */
   agent?: string
-  /** Cycle to the next agent — bound to Tab when the slash popover is closed. */
-  onAgentCycle?: () => void
+  /** Open the agent picker — bound to Tab when the slash popover is closed. */
+  onOpenAgentPicker?: () => void
+  /** Session auto-accept (shift+tab) state — drives a prominent amber mode indicator. */
+  autoAccept?: boolean
+  /**
+   * Text to seed the input with once, on mount. Used on resume to reload the
+   * last failed/unanswered question so the user can retry with one keypress.
+   */
+  initialDraft?: string
+  /**
+   * Reports the live draft text whenever it changes. Lets a parent stash the
+   * in-progress draft (e.g. to survive a session re-gate) without the prompt
+   * knowing anything about auth/session state.
+   */
+  onDraftChange?: (text: string) => void
 }
 
 export function Prompt(props: PromptProps) {
@@ -62,6 +80,9 @@ export function Prompt(props: PromptProps) {
   const exit = useExit()
   const renderer = useRenderer()
   const [value, setValue] = createSignal("")
+  // Report the live draft up to the parent (if it wants it) so it can be stashed
+  // and restored across a remount — e.g. when a session re-gate unmounts the chat.
+  createEffect(() => props.onDraftChange?.(value()))
   // Slow tick to rotate the placeholder phrase while the input is empty. Only
   // requests a render when empty, so a focused/typed prompt costs nothing.
   const [phraseTick, setPhraseTick] = createSignal(0)
@@ -74,12 +95,61 @@ export function Prompt(props: PromptProps) {
     }, 5000)
   })
   onCleanup(() => clearInterval(phraseTimer))
+  // Rotating tips: start on a random tip (variety per visit) and advance every ~20s while
+  // the input is idle — slow enough to read comfortably, and frozen the moment the user types.
+  const [tipTick, setTipTick] = createSignal(props.tips?.length ? Math.floor(Math.random() * props.tips.length) : 0)
+  let tipTimer: ReturnType<typeof setInterval>
+  onMount(() => {
+    tipTimer = setInterval(() => {
+      const tips = props.tips
+      if (!tips || tips.length < 2 || value().length > 0) return
+      setTipTick((t) => t + 1)
+      renderer.requestRender()
+    }, 20000)
+  })
+  onCleanup(() => clearInterval(tipTimer))
+  const currentTip = (): string | null => {
+    const tips = props.tips
+    if (!tips || tips.length === 0) return null
+    return tips[tipTick() % tips.length] ?? null
+  }
   const commands = useCommands()
+  const dialog = useDialog()
+  const auth = useAuth()
+  // The badge next to "Quantcept" reflects the signed-in account's plan, colour-coded by
+  // tier (muted = free, accent = paid, gold = premium/enterprise) — not a static label.
+  const planLabel = createMemo(() => formatPlan(auth.account?.account_type))
+  const planColor = createMemo(() => {
+    const tier = planTier(auth.account?.account_type)
+    return tier === "premium" ? (theme.warning ?? theme.accent) : tier === "paid" ? theme.accent : theme.textMuted
+  })
+  // Own keyboard/paste only when no overlay is up. A modal (DialogProvider) or the
+  // command palette takes input focus while open; keeping the textarea focused would
+  // let it steal keypress + paste (OpenTUI routes paste to the focused renderable),
+  // which is exactly the "paste lands in the home input" bug. Blurring hands input
+  // to the modal cleanly; it re-focuses when the overlay closes.
+  const promptFocused = () => !dialog.active() && !commands.paletteOpen()
   const [slashSelected, setSlashSelected] = createSignal(0)
   const slashResults = createMemo<Command[]>(() => {
     const m = /^\/(\S*)$/.exec(value().trim())
     if (m === null) return []
-    return commands.query(m[1]!).slice(0, 6)
+    return commands.query(m[1]!)
+  })
+  // Render a bounded window of the (possibly long) result list, scrolling so the
+  // current selection stays visible. Replaces the old hard `.slice(0, 6)` cap that
+  // hid every dynamically-registered command (plugins, skills, …) past the first 6.
+  const SLASH_MAX_VISIBLE = 8
+  const slashWindow = createMemo(() => {
+    const all = slashResults()
+    const sel = slashSelected()
+    if (all.length <= SLASH_MAX_VISIBLE) return { items: all, selected: sel, moreAbove: 0, moreBelow: 0 }
+    const start = Math.max(0, Math.min(sel - Math.floor(SLASH_MAX_VISIBLE / 2), all.length - SLASH_MAX_VISIBLE))
+    return {
+      items: all.slice(start, start + SLASH_MAX_VISIBLE),
+      selected: sel - start,
+      moreAbove: start,
+      moreBelow: all.length - (start + SLASH_MAX_VISIBLE),
+    }
   })
   // After "/<command> <prefix>", suggest the command's declared argument choices.
   const argSuggestions = createMemo<{ commandName: string; choices: string[] } | null>(() => {
@@ -113,6 +183,23 @@ export function Prompt(props: PromptProps) {
     applyingHistory = false
     renderer.requestRender()
   }
+
+  // Seed the input from `initialDraft` (resume: the last failed/unanswered
+  // question, reloaded so the user can retry). Reactive — the draft is set
+  // asynchronously after the conversation hydrates, which may be after mount —
+  // and applied only once, only while the input is still empty (so it never
+  // clobbers something the user has started typing).
+  let draftApplied = false
+  createEffect(() => {
+    const draft = props.initialDraft
+    if (draftApplied || !draft || draft.trim().length === 0) return
+    if (value().length > 0) {
+      draftApplied = true // user already typing — don't overwrite
+      return
+    }
+    draftApplied = true
+    queueMicrotask(() => applyHistory(draft))
+  })
 
   const placeholderText = () => {
     const phrases = props.placeholders?.normal ?? [props.placeholder ?? "Ask anything..."]
@@ -155,11 +242,17 @@ export function Prompt(props: PromptProps) {
   return (
     <>
       <box width="100%">
-        <SlashPopover results={slashResults()} argItems={argSuggestions()?.choices} selected={slashSelected()} />
+        <SlashPopover
+          results={slashWindow().items}
+          argItems={argSuggestions()?.choices}
+          selected={slashWindow().selected}
+          moreAbove={slashWindow().moreAbove}
+          moreBelow={slashWindow().moreBelow}
+        />
         <box
           width="100%"
           border={["left"]}
-          borderColor={theme.accent}
+          borderColor={props.autoAccept ? (theme.warning ?? theme.accent) : theme.accent}
           customBorderChars={{
             ...EmptyBorder,
             bottomLeft: "╹",
@@ -182,7 +275,7 @@ export function Prompt(props: PromptProps) {
               focusedTextColor={theme.text}
               minHeight={1}
               maxHeight={6}
-              focused={true}
+              focused={promptFocused()}
               keyBindings={promptKeyBindings}
               onContentChange={() => {
                 setValue(inputRef?.plainText ?? "")
@@ -196,6 +289,14 @@ export function Prompt(props: PromptProps) {
                 setTimeout(() => submit(), 0)
               }}
               onKeyDown={(e: any) => {
+                // Shift+Tab is the session's auto-accept toggle (handled by a global keyboard
+                // handler), NOT a prompt action. Consume it here so the prompt never treats it
+                // as plain Tab — that's why every Tab branch below can assume no shift. This is
+                // what keeps Shift+Tab from opening the agent picker (Tab = agents, Shift+Tab = mode).
+                if (e.name === "tab" && e.shift) {
+                  e.preventDefault()
+                  return
+                }
                 const args = argSuggestions()
                 if (args) {
                   if (e.name === "up") {
@@ -226,10 +327,10 @@ export function Prompt(props: PromptProps) {
                     return
                   }
                 }
-                // No slash popover open: Tab cycles the active agent (the "tab · agents" hint).
+                // No slash popover open: Tab opens the agent picker (the "tab · agents" hint).
                 if (!args && slashResults().length === 0 && e.name === "tab") {
                   e.preventDefault()
-                  props.onAgentCycle?.()
+                  props.onOpenAgentPicker?.()
                   return
                 }
                 if (slashResults().length > 0) {
@@ -303,6 +404,12 @@ export function Prompt(props: PromptProps) {
               }}
               focusedBackgroundColor={theme.backgroundElement}
               cursorColor={theme.text}
+              // The input is focused whenever no overlay is open, so OpenTUI draws the native cursor at
+              // column 0 even while empty. The default block cursor inverts that cell — sitting
+              // on top of the placeholder's first char ("A" of "Ask anything...") — which reads
+              // as a stray highlighted box on the home screen. A line (beam) caret renders before
+              // the glyph instead, so the placeholder stays fully legible.
+              cursorStyle={{ style: "line", blinking: true }}
               ref={(r: TextareaRenderable) => {
                 inputRef = r
               }}
@@ -310,14 +417,20 @@ export function Prompt(props: PromptProps) {
             {/* Agent / Model / Status row */}
             <box flexDirection="row" flexShrink={0} paddingTop={1} gap={1} justifyContent="space-between">
               <box flexDirection="row" gap={1}>
-                <text fg={theme.accent}>{props.agent ?? "Analyst"}</text>
+                <text fg={theme.accent}>{props.agent ?? "Assistant"}</text>
                 <text fg={theme.textMuted}>·</text>
                 <text fg={theme.text}>Quantcept</text>
-                <text fg={theme.textMuted}>Pro</text>
+                {planLabel() && <text fg={planColor()}>{planLabel()}</text>}
                 {props.status && (
                   <>
                     <text fg={theme.textMuted}>·</text>
                     <text fg={theme.accent}>{props.status}</text>
+                  </>
+                )}
+                {props.autoAccept && (
+                  <>
+                    <text fg={theme.textMuted}>·</text>
+                    <text fg={theme.warning ?? theme.accent}>■ auto-accept on (ctrl+t)</text>
                   </>
                 )}
               </box>
@@ -342,7 +455,7 @@ export function Prompt(props: PromptProps) {
         <box
           height={1}
           border={["left"]}
-          borderColor={theme.accent}
+          borderColor={props.autoAccept ? (theme.warning ?? theme.accent) : theme.accent}
           customBorderChars={{ ...EmptyBorder, vertical: "╹" }}
         >
           <box
@@ -353,9 +466,22 @@ export function Prompt(props: PromptProps) {
           />
         </box>
         {/* Hints row. Left tip shrinks/wraps (minWidth 0 defeats flex min-width:auto); the
-            keyboard hints are pinned (flexShrink 0) so they never clip on narrow terminals. */}
-        <box width="100%" flexDirection="row" justifyContent="space-between" gap={2}>
-          <box flexShrink={1} minWidth={0}>{props.hint ?? <text />}</box>
+            keyboard hints are pinned (flexShrink 0) so they never clip on narrow terminals.
+            paddingTop lifts the tip off the input's bottom accent so it reads as its own row. */}
+        <box width="100%" flexDirection="row" justifyContent="space-between" gap={2} paddingTop={1}>
+          <box flexShrink={1} minWidth={0}>
+            {currentTip() != null ? (
+              <box paddingLeft={3}>
+                <text fg={theme.accent}>
+                  {"● "}
+                  <span style={{ fg: theme.text }}>Tip</span>{" "}
+                  <span style={{ fg: theme.textMuted }}>{currentTip()}</span>
+                </text>
+              </box>
+            ) : (
+              (props.hint ?? <text />)
+            )}
+          </box>
           <box gap={2} flexDirection="row" flexShrink={0}>
             <text fg={theme.text}>
               tab <span style={{ fg: theme.textMuted }}>agents</span>
