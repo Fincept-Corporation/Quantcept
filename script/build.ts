@@ -2,6 +2,7 @@
 import fs from "fs"
 import path from "path"
 import { createSolidTransformPlugin } from "@opentui/solid/bun-plugin"
+import { bundleComputeruseBinary } from "./build-computeruse"
 import { bundleLearningsBinary } from "./build-learnings"
 
 const dir = path.resolve(import.meta.dir, "..")
@@ -80,6 +81,9 @@ for (const t of targets) {
   // of the box. Done AFTER Bun.build because the compile step rewrites bin/ (best-effort — falls
   // back to HTTP at runtime if the finceptgo source / Go toolchain isn't available).
   await bundleLearningsBinary({ os: t.os, arch: t.arch, binDir })
+  // Native computer-use sidecar (Rust). Built only for the host target (no cross-compile); the
+  // release matrix builds each platform on its own runner. Best-effort — skipped if Rust absent.
+  await bundleComputeruseBinary({ os: t.os, arch: t.arch, binDir })
 
   fs.writeFileSync(
     `dist/${name}/package.json`,

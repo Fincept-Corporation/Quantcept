@@ -23,9 +23,11 @@ function defaultCandidates(): string[] {
   const repo = process.cwd()
   return [
     process.env.QUANTCEPT_COMPUTERUSE_BIN ?? "",
+    // bundled next to the running executable in a published install (the build drops it in bin/
+    // alongside the main binary) — must be process.execPath, not cwd, since cwd is arbitrary
+    path.join(path.dirname(process.execPath), name),
+    // dev builds in the repo
     path.join(repo, "sidecar", "computeruse", "target", "release", name),
     path.join(repo, "sidecar", "computeruse", "target", "debug", name),
-    // bundled alongside the launcher in a published install
-    path.join(repo, "bin", name),
   ]
 }
