@@ -74,8 +74,8 @@ A few agent tools shell out to external programs and degrade gracefully if absen
 Quantcept is a single package with a headless core engine (`src/core/`), a
 Solid/OpenTUI terminal UI (`src/tui/`), and contributor-facing extensibility
 surfaces (`src/extensions/`). The engine runs without a terminal, which keeps it
-testable and reusable. See [CLAUDE.md](./CLAUDE.md) for the full architecture and
-[CONTRIBUTING.md](./CONTRIBUTING.md) to add your own tools, skills, or plugins.
+testable and reusable. See [CONTRIBUTING.md](./CONTRIBUTING.md) to add your own
+tools, skills, or plugins.
 
 ## Development
 
