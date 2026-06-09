@@ -129,6 +129,9 @@ export function Session() {
   // Mirror of the prompt's live draft (reported via <Prompt onDraftChange>), kept
   // outside reactive state since it's only read at the moment of a re-gate stash.
   let liveDraft = ""
+  // Set to true when a re-gate stash restores the user's typed draft so that the
+  // async hydrateCloudConversation does not overwrite it with lastFailedQuestion.
+  let draftRestored = false
   // Plugin hooks + extra context, populated once enabled plugins load (see the MCP onMount below).
   const [pluginHooks, setPluginHooks] = createSignal<HookRegistry>(new HookRegistry())
   const [pluginContext, setPluginContext] = createSignal("")
@@ -389,7 +392,10 @@ export function Session() {
     // longer exists, must never break the mount.
     const stash = kv.get("session:interrupted", undefined) as InterruptedStash | undefined
     if (stash && stash.sessionID === sessionData().sessionID) {
-      if (stash.draftText && stash.draftText.trim().length > 0) setDraftPrefill(stash.draftText)
+      if (stash.draftText && stash.draftText.trim().length > 0) {
+        setDraftPrefill(stash.draftText)
+        draftRestored = true
+      }
       if (stash.activeAgent) {
         const agent = agents.get(stash.activeAgent)
         if (agent) setActiveAgent(agent)
@@ -537,7 +543,7 @@ export function Session() {
           }
         }),
       )
-      if (lastFailedQuestion.trim().length > 0) setDraftPrefill(lastFailedQuestion)
+      if (lastFailedQuestion.trim().length > 0 && !draftRestored) setDraftPrefill(lastFailedQuestion)
       renderer.requestRender()
     } catch {
       // best-effort hydrate
