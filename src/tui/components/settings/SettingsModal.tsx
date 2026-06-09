@@ -36,6 +36,7 @@ type MenuLine = { header: string } | { label: string; idx: number }
 
 const ACCOUNT_SECTIONS: MenuItem[] = [
   { key: "profile", label: "Profile & key", group: "Account" },
+  { key: "logout", label: "Log out", group: "Account" },
   { key: "security", label: "Security (MFA, password)", group: "Account" },
   { key: "notifications", label: "Notifications", group: "Account" },
   { key: "telegram", label: "Telegram", group: "Account" },
@@ -184,7 +185,16 @@ export function SettingsModal(props: { auth: AuthContext; onClose: () => void })
             flash("API key regenerated")
           },
         },
-        { kind: "action", label: "Log out", run: () => auth.logout().then(props.onClose) },
+      ]
+    }
+    if (key === "logout") {
+      return [
+        {
+          kind: "action",
+          label: "Confirm log out",
+          danger: true,
+          run: () => auth.logout().then(props.onClose),
+        },
       ]
     }
     if (key === "security") {
