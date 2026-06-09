@@ -9,6 +9,12 @@ export interface FinceptEnvelope<T = unknown> {
   credits?: { required: number; available: number }
 }
 
+/** The credential pair sent on every authed request. apiKey = long-lived; sessionToken = device session. */
+export interface FinceptSession {
+  apiKey: string
+  sessionToken?: string
+}
+
 export interface RegisterReq {
   username: string
   email: string

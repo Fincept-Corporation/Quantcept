@@ -4,6 +4,13 @@ import { z } from "zod/v4"
 /** Default Quantcept marketplace (curated finance plugins); overridable via config. */
 export const DEFAULT_MARKETPLACE = "github:Fincept-Corporation/quantcept-marketplace"
 
+/**
+ * The hosted Quantcept backend. This is the ONLY backend the app talks to — the base URL is
+ * fixed (not user-, settings-, or env-configurable). `loadConfig` forces `fincept.baseUrl` to
+ * this value via `applyFinceptHost`, so any stale persisted `http://localhost:8000` is ignored.
+ */
+export const FINCEPT_API_URL = "https://api.quantcept.io"
+
 export const ProviderConfigSchema = z.object({
   id: z.enum(["anthropic-messages", "openai-chat"]),
   model: z.string().min(1),
@@ -98,13 +105,16 @@ export const ConfigSchema = z.object({
   trading: z.object({ enabled: z.boolean().default(false) }).default({ enabled: false }),
   /**
    * Fincept backend account. The mandatory auth gate stores the user's API key here (user-level
-   * settings only — never project, never committed). baseUrl is the dev default; switch to
-   * "https://api.fincept.in" before launch. Override either via FINCEPT_BASE_URL/FINCEPT_API_KEY.
+   * settings only — never project, never committed). `baseUrl` is fixed to the hosted backend
+   * ({@link FINCEPT_API_URL}) and forced on load; it is not user-, settings-, or env-configurable.
+   * The field is retained so the (injectable) client constructors keep a single value to read.
+   * `FINCEPT_API_KEY` may still seed the key from env (CI / shared dev key).
    */
   fincept: z
     .object({
-      baseUrl: z.string().min(1).default("http://localhost:8000"),
+      baseUrl: z.string().min(1).default(FINCEPT_API_URL),
       apiKey: z.string().optional(),
+      sessionToken: z.string().optional(),
       userId: z.string().optional(),
       email: z.string().optional(),
       username: z.string().optional(),
@@ -113,7 +123,7 @@ export const ConfigSchema = z.object({
       // background to contribute to the P2P swarm. Set false to opt out.
       seedByDefault: z.boolean().default(true),
     })
-    .default({ baseUrl: "http://localhost:8000", seedByDefault: true }),
+    .default({ baseUrl: FINCEPT_API_URL, seedByDefault: true }),
   /**
    * Chat engine — two independent axes:
    *  - generation: "cloud" (Fincept server-side) | "local" (on-device agent loop)
@@ -153,6 +163,6 @@ export const defaultConfig: Config = {
   risk: { startingCash: 100_000 },
   broker: { kind: "paper", slippageBps: 5 },
   trading: { enabled: false },
-  fincept: { baseUrl: "http://localhost:8000", seedByDefault: true },
+  fincept: { baseUrl: FINCEPT_API_URL, seedByDefault: true },
   chat: { generation: "cloud", storage: "cloud" },
 }

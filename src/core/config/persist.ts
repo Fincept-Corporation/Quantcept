@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
+import type { FinceptSession } from "@core/fincept/types"
 import { userSettingsFile } from "./paths"
 
 /** Read a settings.json, tolerating a missing or corrupt file (→ {}). */
@@ -53,6 +54,7 @@ export function clearVisionProvider(file: string = userSettingsFile()): void {
 export interface FinceptAuthSettings {
   baseUrl?: string
   apiKey?: string
+  sessionToken?: string
   userId?: string
   email?: string
   username?: string
@@ -75,12 +77,21 @@ export function setFinceptAuth(patch: FinceptAuthSettings, file: string = userSe
   writeSettingsFile(file, settings)
 }
 
-/** Drop the stored key + account fields on logout, keeping only baseUrl. */
+/**
+ * Drop the stored key + account fields on logout. The base URL is fixed to the hosted backend
+ * (see applyFinceptHost) and never persisted, so there is nothing to preserve — clear the whole
+ * block (which also sheds any stale `baseUrl` a pre-migration install left behind).
+ */
 export function clearFinceptAuth(file: string = userSettingsFile()): void {
   const settings = readSettingsFile(file)
-  const prev = (settings.fincept as FinceptAuthSettings) ?? {}
-  settings.fincept = { baseUrl: prev.baseUrl }
+  settings.fincept = {}
   writeSettingsFile(file, settings)
+}
+
+/** Build a FinceptSession from a settings file (default: user settings), or undefined if no key. */
+export function sessionFromConfig(file: string = userSettingsFile()): FinceptSession | undefined {
+  const f = getFinceptAuth(file)
+  return f?.apiKey ? { apiKey: f.apiKey, sessionToken: f.sessionToken } : undefined
 }
 
 // ── Generic user-settings editor (backing the in-TUI Settings modal) ─────────
