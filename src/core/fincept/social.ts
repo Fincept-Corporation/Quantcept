@@ -22,7 +22,7 @@ export function startSocialLogin(provider: SocialProvider, deps: SocialLoginDeps
   return new Promise<FinceptSession>((resolve, reject) => {
     let settled = false
     const html =
-      "<!doctype html><meta charset=utf-8><body style=\"font-family:sans-serif;padding:2rem\">" +
+      '<!doctype html><meta charset=utf-8><body style="font-family:sans-serif;padding:2rem">' +
       "<h3>Signed in to Quantcept.</h3><p>You can close this tab and return to the terminal.</p></body>"
 
     const server = Bun.serve({
