@@ -19,8 +19,7 @@ export const MAX_WORKFLOW_BODY_BYTES = 4096
  * schema runs.  Non-strings are passed through unchanged so Zod can report
  * the type error in the normal way.
  */
-const trimmedString = (schema: z.ZodType<string>) =>
-  z.preprocess((v) => (typeof v === "string" ? v.trim() : v), schema)
+const trimmedString = (schema: z.ZodType<string>) => z.preprocess((v) => (typeof v === "string" ? v.trim() : v), schema)
 
 /**
  * Pre-validation cleaning that mirrors Go: trim each entry, then drop
@@ -55,9 +54,7 @@ const checkSchema = z
   })
 
 const frontmatterSchema = z.strictObject({
-  name: trimmedString(
-    z.string().regex(/^[a-z0-9][a-z0-9-]{1,99}$/, "name must be a lowercase kebab-case slug"),
-  ),
+  name: trimmedString(z.string().regex(/^[a-z0-9][a-z0-9-]{1,99}$/, "name must be a lowercase kebab-case slug")),
   title: trimmedString(
     z
       .string()
@@ -135,9 +132,7 @@ export function parseWorkflow(raw: string): WorkflowDoc {
 
   const bytes = new TextEncoder().encode(body).length
   if (bytes > MAX_WORKFLOW_BODY_BYTES) {
-    throw new Error(
-      `workflow body exceeds ${MAX_WORKFLOW_BODY_BYTES} bytes (got ${bytes}): 4096 is the injection cap`,
-    )
+    throw new Error(`workflow body exceeds ${MAX_WORKFLOW_BODY_BYTES} bytes (got ${bytes}): 4096 is the injection cap`)
   }
 
   return { ...res.data, body }
@@ -160,4 +155,3 @@ function findClosingFence(content: string, start: number): number {
   }
   return -1
 }
-
