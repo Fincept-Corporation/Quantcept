@@ -1,3 +1,4 @@
+import { homedir } from "node:os"
 import { z } from "zod/v4"
 import type { WorkflowCheck } from "./parser"
 
@@ -91,10 +92,11 @@ export async function loadCorpus(dir?: string): Promise<Corpus | null> {
   }
 }
 
-/** Mirrors the Go sidecar's KnowledgeDir (cmd/learnings/sync.go — keep in sync). */
+/** Mirrors the Go sidecar's KnowledgeDir (cmd/learnings/sync.go — keep in sync).
+ *  homedir() matches Go's os.UserHomeDir on every platform; env-var probing
+ *  diverged on Windows boxes with HOME set (sidecar wrote where we never read). */
 export function defaultKnowledgeDir(): string {
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? "."
-  return `${home}/.quantcept/knowledge`
+  return `${homedir()}/.quantcept/knowledge`
 }
 
 // High-frequency function words carry no routing signal — counting them lets a
@@ -157,9 +159,12 @@ export function localRoute(
       if (tt.size === 0) continue
       let overlap = 0
       for (const tok of tt) if (q.has(tok)) overlap++
-      // Denominator floor: a 1-2 content-token trigger must not be trivially
-      // satisfiable by a single shared word.
-      const score = overlap / Math.max(tt.size, 3)
+      // Denominator floor: a single-content-token trigger must not be
+      // trivially satisfiable by one shared word. Floor 2 (not 3): with
+      // stop-words removed, common 2-content-token triggers ("dividend safe")
+      // must still be able to reach the 0.7 default on a verbatim ask —
+      // floor 3 made the offline fallback near-inert.
+      const score = overlap / Math.max(tt.size, 2)
       if (score > bestScore) {
         best = wf
         bestScore = score

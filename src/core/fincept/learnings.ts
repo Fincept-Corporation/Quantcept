@@ -166,6 +166,10 @@ export class FinceptLearnings extends FinceptResource {
       path: "/v1/learnings/route",
       token: this.token(),
       body: { query, conversation_id: opts?.conversationId, available_tools: opts?.availableTools },
+      // Routing sits in the send path of a local turn — bound it to the server
+      // router's own internal budget so a black-holed network can't stall the
+      // prompt for the default 30s.
+      timeoutMs: 5_000,
     })
   }
   /** Report local-generation workflow outcomes (free; batch ≤20, detail ≤8KB each). */

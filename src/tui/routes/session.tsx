@@ -931,23 +931,25 @@ export function Session() {
     // hit, mandate the workflow by appending its block to the system prompt and
     // surfacing the badge. Server-first with an offline corpus fallback; fully
     // gated by config so it's a no-op when disabled.
+    setActiveWorkflow(undefined) // a prior turn's badge never outlives its turn
+    turnTools = []
     let knowledgeMatch: Awaited<ReturnType<typeof knowledge.route>> = null
     if (config.knowledge.localRouting) {
-      setActiveWorkflow(undefined)
       knowledgeMatch = await knowledge.route(text, { availableTools: registry.list().map((t) => t.name) })
       if (knowledgeMatch) {
         system = `${system}${buildWorkflowSystemBlock(knowledgeMatch)}`
         setActiveWorkflow({ title: knowledgeMatch.title, version: knowledgeMatch.version })
       }
     }
-    turnTools = []
     await runTurn({ system, toolRegistry: registry })
     // Report the outcome (fire-and-forget): the engine runs the local check
     // evaluator against the final answer + tools used and ships client events.
-    if (knowledgeMatch) {
+    // Aborted or errored turns don't report — a half-answer scored against the
+    // workflow's checks would poison its telemetry with spurious failures.
+    if (knowledgeMatch && !turnAbortController?.signal.aborted) {
       const last = messages[messages.length - 1]
       const answer = last && last.role === "assistant" ? last.content : ""
-      void knowledge.reportOutcome(knowledgeMatch, { answer, toolsUsed: turnTools })
+      if (answer) void knowledge.reportOutcome(knowledgeMatch, { answer, toolsUsed: turnTools })
     }
   }
 
