@@ -100,4 +100,25 @@ describe("parseWorkflow", () => {
     expect(() => parseWorkflow(huge)).toThrow(/frontmatter/i)
     expect(performance.now() - start).toBeLessThan(1000)
   })
+
+  test("whitespace-only trigger entries are dropped BEFORE the count check (Go parity)", () => {
+    expect(() =>
+      parseWorkflow('---\nname: ok-name\ntitle: T\ndescription: d\ntriggers: ["   "]\n---\nbody'),
+    ).toThrow(/trigger/i)
+  })
+
+  test("whitespace-only domain entry is dropped before the max-10 check (Go parity)", () => {
+    const domains = '[a,b,c,d,e,f,g,h,i,j, "   "]'
+    const doc = parseWorkflow(
+      `---\nname: ok-name\ntitle: T\ndescription: d\ntriggers: [x]\ndomains: ${domains}\n---\nbody`,
+    )
+    expect(doc.domains).toHaveLength(10)
+  })
+
+  test("padded scalar values are trimmed before validation", () => {
+    const doc = parseWorkflow('---\nname: ok-name\ntitle: "  T  "\ndescription: " d "\ntriggers: [" x "]\n---\nbody')
+    expect(doc.title).toBe("T")
+    expect(doc.description).toBe("d")
+    expect(doc.triggers).toEqual(["x"])
+  })
 })

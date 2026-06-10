@@ -14,6 +14,31 @@ import { z } from "zod/v4"
 /** Injection cap (bytes) — mirrors learnings.MaxWorkflowBodyBytes. */
 export const MAX_WORKFLOW_BODY_BYTES = 4096
 
+/**
+ * Pre-validation cleaning that mirrors Go: trim a string before the base
+ * schema runs.  Non-strings are passed through unchanged so Zod can report
+ * the type error in the normal way.
+ */
+const trimmedString = (schema: z.ZodType<string>) =>
+  z.preprocess((v) => (typeof v === "string" ? v.trim() : v), schema)
+
+/**
+ * Pre-validation cleaning that mirrors Go: trim each entry, then drop
+ * empty strings, before the base array schema runs.
+ * `undefined` is passed through so `.default()` inside the array schema
+ * can still fire on missing keys.
+ */
+const trimmedList = (schema: z.ZodType<string[]>) =>
+  z.preprocess(
+    (v) =>
+      v === undefined
+        ? v
+        : Array.isArray(v)
+          ? v.map((s) => (typeof s === "string" ? s.trim() : s)).filter((s) => s !== "")
+          : v,
+    schema,
+  )
+
 const checkSchema = z
   .strictObject({
     kind: z.enum(["output_sections", "tool_called", "numbers_cited"]),
@@ -30,21 +55,23 @@ const checkSchema = z
   })
 
 const frontmatterSchema = z.strictObject({
-  name: z
-    .string()
-    .regex(/^[a-z0-9][a-z0-9-]{1,99}$/, "name must be a lowercase kebab-case slug"),
-  title: z
-    .string()
-    .min(1)
-    .refine((t) => !/[\r\n]/.test(t), "title must be a single line")
-    .refine((t) => [...t].length <= 200, "title exceeds 200 code points"),
-  description: z.string().min(1),
-  triggers: z.array(z.string().min(1)).min(1).max(8),
-  domains: z.array(z.string().min(1)).max(10).default([]),
+  name: trimmedString(
+    z.string().regex(/^[a-z0-9][a-z0-9-]{1,99}$/, "name must be a lowercase kebab-case slug"),
+  ),
+  title: trimmedString(
+    z
+      .string()
+      .min(1)
+      .refine((t) => !/[\r\n]/.test(t), "title must be a single line")
+      .refine((t) => [...t].length <= 200, "title exceeds 200 code points"),
+  ),
+  description: trimmedString(z.string().min(1)),
+  triggers: trimmedList(z.array(z.string().min(1)).min(1).max(8)),
+  domains: trimmedList(z.array(z.string().min(1)).max(10).default([])),
   tools: z
     .strictObject({
-      required: z.array(z.string().min(1)).default([]),
-      optional: z.array(z.string().min(1)).default([]),
+      required: trimmedList(z.array(z.string().min(1)).default([])),
+      optional: trimmedList(z.array(z.string().min(1)).default([])),
     })
     .default({ required: [], optional: [] }),
   inputs: z
@@ -103,7 +130,6 @@ export function parseWorkflow(raw: string): WorkflowDoc {
     const first = res.error.issues[0]
     throw new Error(`workflow frontmatter: ${first?.path.join(".") ?? ""} ${first?.message ?? "invalid"}`.trim())
   }
-  const data = trimDoc(res.data)
 
   if (!body) throw new Error("workflow body (steps) is required")
 
@@ -114,7 +140,7 @@ export function parseWorkflow(raw: string): WorkflowDoc {
     )
   }
 
-  return { ...data, body }
+  return { ...res.data, body }
 }
 
 /**
@@ -135,16 +161,3 @@ function findClosingFence(content: string, start: number): number {
   return -1
 }
 
-/** Trim strings + drop empty list entries (mirrors Go's trimAll). */
-function trimDoc(d: WorkflowFrontmatter): WorkflowFrontmatter {
-  const trimAll = (xs: string[]) => xs.map((s) => s.trim()).filter((s) => s.length > 0)
-  return {
-    ...d,
-    name: d.name.trim(),
-    title: d.title.trim(),
-    description: d.description.trim(),
-    triggers: trimAll(d.triggers),
-    domains: trimAll(d.domains),
-    tools: { required: trimAll(d.tools.required), optional: trimAll(d.tools.optional) },
-  }
-}
