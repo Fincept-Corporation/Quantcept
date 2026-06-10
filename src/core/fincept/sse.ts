@@ -19,6 +19,7 @@ export type ChatStreamEvent =
   | { type: "finish"; stopReason: string; usage?: { inputTokens: number; outputTokens: number } }
   | { type: "error"; code: string; message: string }
   | { type: "done" }
+  | { type: "workflow"; name: string; title: string; version: number; performance: number }
   | { type: "passthrough"; event: string; data: unknown }
 
 /**
@@ -97,6 +98,16 @@ export function toChatEvent(frame: SseFrame): ChatStreamEvent {
       return { type: "error", code: String(p.code ?? "error"), message: String(p.message ?? "") }
     case "done":
       return { type: "done" }
+    case "workflow": {
+      const w = p as { name?: string; title?: string; version?: number; performance?: number }
+      return {
+        type: "workflow",
+        name: typeof w.name === "string" ? w.name : "",
+        title: typeof w.title === "string" ? w.title : "",
+        version: typeof w.version === "number" ? w.version : 0,
+        performance: typeof w.performance === "number" ? w.performance : 0,
+      }
+    }
     default:
       return { type: "passthrough", event: ev, data: p }
   }

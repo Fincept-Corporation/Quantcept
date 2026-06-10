@@ -35,6 +35,8 @@ import { runHooks } from "@core/hooks/runner"
 import type { HookRunner } from "@core/hooks/types"
 import { JobStore } from "@core/jobs"
 import { registerJobControlTools } from "@core/jobs/JobControlTool"
+import { loadCorpus } from "@core/knowledge/corpus"
+import { buildWorkflowSystemBlock, KnowledgeEngine } from "@core/knowledge/engine"
 import { stripStrayCJK } from "@core/llm/normalize"
 import { createProvider } from "@core/llm/provider"
 import { McpManager } from "@core/mcp/manager"
@@ -138,6 +140,21 @@ export function Session() {
   const hookRunner: HookRunner = { fire: (event) => runHooks(pluginHooks(), event) }
   const [activeAgent, setActiveAgent] = createSignal<LoadedAgent | undefined>(undefined)
   const config = loadConfig()
+  // Knowledge routing (spec §12): server /route is authoritative, the synced
+  // corpus is the offline fallback. The badge signal surfaces the matched
+  // workflow in the footer; reportOutcome ships completed + checks_* events.
+  const knowledge = new KnowledgeEngine({
+    remoteRoute: async (query, opts) => (await auth.learnings.route(query, opts)).data.match,
+    loadCorpus: () => loadCorpus(),
+    reportEvents: async (events) => {
+      await auth.learnings.events(events)
+    },
+    localThreshold: config.knowledge.localThreshold,
+  })
+  const [activeWorkflow, setActiveWorkflow] = createSignal<{ title: string; version: number } | undefined>()
+  // Tool names invoked during the current turn — accumulated from tool_start
+  // events so reportOutcome can evaluate `tool_called` checks. Reset per turn.
+  let turnTools: string[] = []
   // Two axes (Settings): generation cloud→server-side, local→on-device loop.
   // storage cloud→Fincept chat plane, local→SessionStore. Cloud generation always
   // persists server-side, so storeCloud is implied by cloud generation.
@@ -474,6 +491,8 @@ export function Session() {
         }),
       )
     } else if (e.type === "tool_start") {
+      // Track tool usage for knowledge `tool_called` checks (reportOutcome).
+      turnTools.push(e.tool)
       // Commit any buffered text into the current assistant bubble before the
       // tool row and the fresh post-tool bubble are pushed below.
       textCoalescer.flush()
@@ -640,6 +659,9 @@ export function Session() {
       return
     }
     turnAbortController = new AbortController()
+    // Clear any prior workflow badge; the server emits a `workflow` SSE event
+    // when this generation is routed onto a proven workflow.
+    setActiveWorkflow(undefined)
     let genId = ""
     let stopPump: (() => void) | undefined
     try {
@@ -713,6 +735,9 @@ export function Session() {
         } else if (ev.type === "finish") {
           const u = ev.usage
           if (u) setTokensPrev((p) => p + u.inputTokens + u.outputTokens)
+        } else if (ev.type === "workflow") {
+          // The server routed this generation onto a proven workflow — surface it.
+          setActiveWorkflow({ title: ev.title, version: ev.version })
         } else if (ev.type === "error") {
           textCoalescer.dispose()
           updateLastAssistantMessage(`Error: ${ev.message || ev.code}`)
@@ -902,7 +927,28 @@ export function Session() {
       prompt: text,
     })
     if (pre.additionalContext.length) system = `${system}\n\n${pre.additionalContext.join("\n\n")}`
+    // Knowledge routing: match the query against the workflow engine and, on a
+    // hit, mandate the workflow by appending its block to the system prompt and
+    // surfacing the badge. Server-first with an offline corpus fallback; fully
+    // gated by config so it's a no-op when disabled.
+    let knowledgeMatch: Awaited<ReturnType<typeof knowledge.route>> = null
+    if (config.knowledge.localRouting) {
+      setActiveWorkflow(undefined)
+      knowledgeMatch = await knowledge.route(text, { availableTools: registry.list().map((t) => t.name) })
+      if (knowledgeMatch) {
+        system = `${system}${buildWorkflowSystemBlock(knowledgeMatch)}`
+        setActiveWorkflow({ title: knowledgeMatch.title, version: knowledgeMatch.version })
+      }
+    }
+    turnTools = []
     await runTurn({ system, toolRegistry: registry })
+    // Report the outcome (fire-and-forget): the engine runs the local check
+    // evaluator against the final answer + tools used and ships client events.
+    if (knowledgeMatch) {
+      const last = messages[messages.length - 1]
+      const answer = last && last.role === "assistant" ? last.content : ""
+      void knowledge.reportOutcome(knowledgeMatch, { answer, toolsUsed: turnTools })
+    }
   }
 
   function runSkill(skillName: string, args: string) {
@@ -1171,6 +1217,9 @@ export function Session() {
           <text fg={autoAccept.enabled() ? theme.warning : theme.textMuted}>
             {autoApproveLabel(autoAccept.enabled())}
           </text>
+          <Show when={activeWorkflow()}>
+            {(wf) => <text fg={theme.accent}>{`⚡ ${wf().title} v${wf().version}`}</text>}
+          </Show>
           <text fg={theme.textMuted}>{sessionData().sessionID.slice(0, 12)}</text>
         </box>
       </box>

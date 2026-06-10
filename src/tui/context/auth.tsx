@@ -34,6 +34,7 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
   name: "Auth",
   init: (props: { baseUrl?: string }) => {
     const cfg = loadConfig().fincept
+    const knowledgeCfg = loadConfig().knowledge
     const baseUrl = props.baseUrl ?? cfg.baseUrl
 
     const [status, setStatus] = createSignal<AuthStatus>("checking")
@@ -77,6 +78,10 @@ export const { use: useAuth, provider: AuthProvider } = createSimpleContext({
         if (!url) return
         setTrackerUrl(url)
         seedHandle = learningsSidecar.seedStart()
+        // Pull the latest knowledge corpus snapshot (corpus.json) in the
+        // background so local routing has an offline fallback. Fire-and-forget;
+        // the sidecar never throws (returns an {event:"error"} on failure).
+        if (knowledgeCfg.syncCorpus !== false) void learningsSidecar.sync()
       } catch {
         /* offline / sidecar unavailable — user can still download on demand */
       }

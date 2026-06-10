@@ -137,6 +137,20 @@ export const ConfigSchema = z.object({
       storage: z.enum(["cloud", "local"]).default("cloud"),
     })
     .default({ generation: "cloud", storage: "cloud" }),
+  /**
+   * Knowledge engine (workflow routing) — client-side behavior only; the server
+   * routes cloud generations regardless of these settings.
+   */
+  knowledge: z
+    .object({
+      /** Route local generations against the workflow corpus. */
+      localRouting: z.boolean().default(true),
+      /** Offline trigger-match threshold (token overlap 0..1). Mirrors the engine's LOCAL_THRESHOLD_DEFAULT. */
+      localThreshold: z.number().min(0).max(1).default(0.7),
+      /** Sync the corpus snapshot when connecting to the network. */
+      syncCorpus: z.boolean().default(true),
+    })
+    .default({ localRouting: true, localThreshold: 0.7, syncCorpus: true }),
 })
 
 export type Config = z.infer<typeof ConfigSchema>
@@ -165,4 +179,5 @@ export const defaultConfig: Config = {
   trading: { enabled: false },
   fincept: { baseUrl: FINCEPT_API_URL, seedByDefault: true },
   chat: { generation: "cloud", storage: "cloud" },
+  knowledge: { localRouting: true, localThreshold: 0.7, syncCorpus: true },
 }
