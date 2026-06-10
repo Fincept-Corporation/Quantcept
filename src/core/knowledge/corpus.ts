@@ -14,6 +14,10 @@ import type { WorkflowCheck } from "./parser"
 const corpusWorkflowSchema = z.object({
   name: z.string(),
   version: z.number(),
+  // DB workflow_versions.id — carried so local-fallback outcomes attribute to
+  // the right version on the server's /events endpoint. Defaults to 0 for
+  // legacy manifests built before this field existed (server skips unknown ids).
+  version_id: z.number().default(0),
   title: z.string(),
   description: z.string().default(""),
   triggers: z.array(z.string()).default([]),
@@ -36,6 +40,8 @@ const corpusManifestSchema = z.object({
 export interface CorpusWorkflow {
   name: string
   version: number
+  /** DB workflow_versions.id (0 when absent in a legacy manifest). */
+  versionId: number
   title: string
   description: string
   triggers: string[]
@@ -60,6 +66,7 @@ export function parseCorpus(raw: string): Corpus {
     workflows: m.workflows.map((w) => ({
       name: w.name,
       version: w.version,
+      versionId: w.version_id,
       title: w.title,
       description: w.description,
       triggers: w.triggers,
@@ -94,9 +101,30 @@ export function defaultKnowledgeDir(): string {
 // short trigger false-positive on unrelated queries ("is this safe to eat"
 // must not match "is this dividend safe").
 const STOP_WORDS = new Set([
-  "the", "this", "that", "these", "those", "what", "which", "with", "from",
-  "your", "into", "will", "does", "has", "have", "are", "was", "were", "and",
-  "for", "you", "how", "can", "should",
+  "the",
+  "this",
+  "that",
+  "these",
+  "those",
+  "what",
+  "which",
+  "with",
+  "from",
+  "your",
+  "into",
+  "will",
+  "does",
+  "has",
+  "have",
+  "are",
+  "was",
+  "were",
+  "and",
+  "for",
+  "you",
+  "how",
+  "can",
+  "should",
 ])
 
 const tokenize = (s: string): Set<string> =>

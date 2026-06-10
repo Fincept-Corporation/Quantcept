@@ -131,4 +131,50 @@ export class LearningsSidecar {
       return { stop: () => {} }
     }
   }
+
+  /**
+   * Sync the knowledge corpus (corpus.json) via the Go sidecar. Resolves with
+   * the terminal event; failures come back as {event:"error"} (never throws).
+   */
+  async sync(onEvent?: (e: SidecarEvent) => void): Promise<SidecarEvent> {
+    const emit = onEvent ?? (() => {})
+    let last: SidecarEvent = { event: "start" }
+    try {
+      const proc = Bun.spawn([this.binPath(), "sync", "--json"], { env: this.env(), stdout: "pipe", stderr: "pipe" })
+      const reader = proc.stdout.getReader()
+      const decoder = new TextDecoder()
+      let buf = ""
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        for (let nl = buf.indexOf("\n"); nl >= 0; nl = buf.indexOf("\n")) {
+          const line = buf.slice(0, nl).trim()
+          buf = buf.slice(nl + 1)
+          if (!line) continue
+          try {
+            const ev = JSON.parse(line) as SidecarEvent
+            last = ev
+            emit(ev)
+          } catch {
+            /* ignore noise */
+          }
+        }
+      }
+      await proc.exited
+      if (proc.exitCode !== 0 && last.event !== "error") {
+        const stderr = (await new Response(proc.stderr).text()).trim()
+        last = { event: "error", message: stderr || `learnings sync exited ${proc.exitCode}` }
+        emit(last)
+      }
+      return last
+    } catch (e) {
+      const err: SidecarEvent = {
+        event: "error",
+        message: `learnings sidecar sync failed: ${e instanceof Error ? e.message : String(e)}`,
+      }
+      emit(err)
+      return err
+    }
+  }
 }
