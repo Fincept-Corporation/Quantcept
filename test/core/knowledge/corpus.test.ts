@@ -62,4 +62,9 @@ describe("localRoute (offline trigger matching)", () => {
     const m = localRoute(corpus, "is this dividend safe", undefined, 0.5)
     expect(m?.name).toBe("dividend-safety-check")
   })
+  test("stop-words alone cannot trigger a match", () => {
+    // "is/this/safe" overlap must not bind the dividend workflow to an
+    // unrelated safety question (probe-proven false positive pre-hardening).
+    expect(localRoute(corpus, "is this safe to eat", undefined, 0.6)).toBeNull()
+  })
 })

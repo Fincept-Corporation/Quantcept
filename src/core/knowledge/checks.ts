@@ -37,7 +37,7 @@ export function evaluateChecks(
         break
       }
       default:
-        results.push({ kind: c.kind, passed: true, advisory: true, detail: "advisory: not evaluated in P2" })
+        results.push({ kind: c.kind, passed: true, advisory: true, detail: "advisory: not evaluated" })
     }
   }
   return { results, allPassed }

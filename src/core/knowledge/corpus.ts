@@ -90,12 +90,21 @@ export function defaultKnowledgeDir(): string {
   return `${home}/.quantcept/knowledge`
 }
 
+// High-frequency function words carry no routing signal — counting them lets a
+// short trigger false-positive on unrelated queries ("is this safe to eat"
+// must not match "is this dividend safe").
+const STOP_WORDS = new Set([
+  "the", "this", "that", "these", "those", "what", "which", "with", "from",
+  "your", "into", "will", "does", "has", "have", "are", "was", "were", "and",
+  "for", "you", "how", "can", "should",
+])
+
 const tokenize = (s: string): Set<string> =>
   new Set(
     s
       .toLowerCase()
       .split(/[^a-z0-9]+/)
-      .filter((t) => t.length > 2),
+      .filter((t) => t.length > 2 && !STOP_WORDS.has(t)),
   )
 
 /**
@@ -120,7 +129,9 @@ export function localRoute(
       if (tt.size === 0) continue
       let overlap = 0
       for (const tok of tt) if (q.has(tok)) overlap++
-      const score = overlap / tt.size
+      // Denominator floor: a 1-2 content-token trigger must not be trivially
+      // satisfiable by a single shared word.
+      const score = overlap / Math.max(tt.size, 3)
       if (score > bestScore) {
         best = wf
         bestScore = score
