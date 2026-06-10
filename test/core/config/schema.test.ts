@@ -244,3 +244,18 @@ describe("ConfigSchema visionProvider", () => {
     ).toThrow()
   })
 })
+
+describe("ConfigSchema knowledge block", () => {
+  test("defaults match the engine (localRouting on, threshold 0.7, sync on)", () => {
+    const c = ConfigSchema.parse({ provider: { id: "anthropic-messages", model: "m", baseUrl: "https://x" } })
+    expect(c.knowledge).toEqual({ localRouting: true, localThreshold: 0.7, syncCorpus: true })
+  })
+  test("rejects an out-of-range threshold", () => {
+    expect(() =>
+      ConfigSchema.parse({
+        provider: { id: "anthropic-messages", model: "m", baseUrl: "https://x" },
+        knowledge: { localThreshold: 1.5 },
+      }),
+    ).toThrow()
+  })
+})
