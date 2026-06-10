@@ -64,4 +64,30 @@ describe("FinceptLearnings", () => {
     expect(ct).toBeUndefined()
     expect((calls[0].init.headers as Record<string, string>).Authorization).toBe("Bearer fk_user_tok")
   })
+
+  test("route posts query with conversation + tools", async () => {
+    const calls = capture()
+    await learn.route("screen these stocks", { conversationId: "conv_1", availableTools: ["a", "b"] })
+    expect(calls[0].url).toBe("http://x/v1/learnings/route")
+    expect(calls[0].init.method).toBe("POST")
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({
+      query: "screen these stocks",
+      conversation_id: "conv_1",
+      available_tools: ["a", "b"],
+    })
+  })
+
+  test("events posts a batch", async () => {
+    const calls = capture()
+    await learn.events([{ event: "completed", version_id: 7, generation_pid: "g1" }])
+    expect(calls[0].url).toBe("http://x/v1/learnings/events")
+    expect(JSON.parse(calls[0].init.body as string).events).toHaveLength(1)
+  })
+
+  test("snapshotLatest gets the descriptor", async () => {
+    const calls = capture()
+    await learn.snapshotLatest()
+    expect(calls[0].url).toBe("http://x/v1/learnings/snapshot/latest")
+    expect(calls[0].init.method).toBe("GET")
+  })
 })

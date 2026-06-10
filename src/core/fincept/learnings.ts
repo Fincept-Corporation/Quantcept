@@ -51,6 +51,39 @@ export interface LearningsNetworkStats {
   tracker_url?: string
 }
 
+export interface WorkflowRouteMatch {
+  route_id: number
+  version_id: number
+  /** Learning public id. */
+  id: string
+  name: string
+  version: number
+  title: string
+  body: string
+  tools_required?: string[]
+  performance: number
+  score: number
+}
+export interface WorkflowClientEvent {
+  event: "completed" | "checks_passed" | "checks_failed" | "regenerated"
+  version_id: number
+  generation_pid?: string
+  conversation_pid?: string
+  detail?: Record<string, unknown>
+}
+export interface CorpusSnapshotInfo {
+  id: string
+  title: string
+  version: number
+  sha256: string
+  file_size: number
+  created_at?: string
+  torrent_hash?: string
+  magnet_uri?: string
+  download_url?: string
+  expires_in?: number
+}
+
 /**
  * Community "learnings" registry over the Fincept backend (/v1/learnings/*) —
  * LLM learning files with pgvector semantic search and P2P delivery. Reads are
@@ -125,5 +158,31 @@ export class FinceptLearnings extends FinceptResource {
     if (input.tags?.length) form.set("tags", input.tags.join(","))
     form.set("file", new Blob([input.content], { type: "text/markdown" }), input.filename ?? "learning.md")
     return this.client.upload<LearningItem>("/v1/learnings", form, this.token())
+  }
+  /** Route a query against the workflow knowledge engine (free; null = no match). */
+  route(query: string, opts?: { conversationId?: string; availableTools?: string[] }) {
+    return this.client.request<{ match: WorkflowRouteMatch | null }>({
+      method: "POST",
+      path: "/v1/learnings/route",
+      token: this.token(),
+      body: { query, conversation_id: opts?.conversationId, available_tools: opts?.availableTools },
+    })
+  }
+  /** Report local-generation workflow outcomes (free; batch ≤20, detail ≤8KB each). */
+  events(events: WorkflowClientEvent[]) {
+    return this.client.request<{ accepted: number }>({
+      method: "POST",
+      path: "/v1/learnings/events",
+      token: this.token(),
+      body: { events },
+    })
+  }
+  /** Latest corpus snapshot descriptor for the sidecar sync (free; null until built). */
+  snapshotLatest() {
+    return this.client.request<{ snapshot: CorpusSnapshotInfo | null }>({
+      method: "GET",
+      path: "/v1/learnings/snapshot/latest",
+      token: this.token(),
+    })
   }
 }
