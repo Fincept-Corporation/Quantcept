@@ -181,7 +181,12 @@ export class McpClient {
 
   async callTool(bareName: string, args: unknown): Promise<{ output: string; isError: boolean }> {
     if (!this.client) throw new ProviderError("MCP client not connected")
-    const r = await this.client.callTool({ name: bareName, arguments: args ?? {} })
+    // Time-bound the call like connect/listTools: a hung server must not wedge the agent turn.
+    const r = await withTimeout(
+      this.client.callTool({ name: bareName, arguments: args ?? {} }),
+      this.config.timeout,
+      "callTool",
+    )
     const output = (r.content ?? [])
       .filter((c) => c.type === "text")
       .map((c) => c.text ?? "")

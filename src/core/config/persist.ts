@@ -1,6 +1,6 @@
 import fs from "node:fs"
-import path from "node:path"
 import type { FinceptSession } from "@core/fincept/types"
+import { writeOwnerFile } from "@shared/fsperm"
 import { userSettingsFile } from "./paths"
 
 /** Read a settings.json, tolerating a missing or corrupt file (→ {}). */
@@ -14,15 +14,10 @@ export function readSettingsFile(file: string): Record<string, unknown> {
 }
 
 function writeSettingsFile(file: string, data: unknown): void {
-  // 0700 dir / 0600 file: settings.json holds secrets (LLM + Fincept API keys),
-  // so keep it owner-only. mode on create only; chmod covers a pre-existing file.
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
-  fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 })
-  try {
-    fs.chmodSync(file, 0o600)
-  } catch {
-    // best-effort — POSIX perms don't apply on Windows
-  }
+  // settings.json holds secrets (LLM + Fincept API keys): owner-only 0700 dir / 0600
+  // file + Windows ACL lockdown, and an unwritable path surfaces as a readable
+  // StorageError instead of a raw errno. See @shared/fsperm.writeOwnerFile.
+  writeOwnerFile(file, `${JSON.stringify(data, null, 2)}\n`)
 }
 
 export interface VisionProviderSettings {

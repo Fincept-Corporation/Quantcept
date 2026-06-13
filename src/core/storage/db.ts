@@ -8,6 +8,9 @@ export function openDb(): Database {
   ensureDir(dataDir())
   const db = new Database(dbFile(), { create: true })
   db.run("PRAGMA journal_mode = WAL")
+  // Multiple handles (TUI stores + a concurrent CLI `jobs tick`) write the same file.
+  // Without this, a second writer throws SQLITE_BUSY immediately; make it wait instead.
+  db.run("PRAGMA busy_timeout = 5000")
   db.run("CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)")
   const applied = new Set((db.query("SELECT id FROM schema_migrations").all() as { id: string }[]).map((r) => r.id))
   for (const m of MIGRATIONS) {

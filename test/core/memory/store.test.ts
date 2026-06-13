@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync } from "fs"
+import { mkdtempSync, readdirSync, rmSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { forget, listMemories, readIndex, recall, remember } from "@core/memory/store"
+import { forget, listMemories, memoryDir, readIndex, recall, remember } from "@core/memory/store"
 
 let tmp: string
 beforeEach(() => {
@@ -68,5 +68,13 @@ describe("memory store", () => {
 
   test("forget returns false for a missing slug", () => {
     expect(forget("project", "ph", "nope")).toBe(false)
+  })
+
+  test("forget leaves no .tmp file behind (atomic index replace)", () => {
+    remember({ scope: "project", projectHash: "ph", title: "Risk", fact: "low risk" })
+    remember({ scope: "project", projectHash: "ph", title: "Goals", fact: "retire early" })
+    forget("project", "ph", "risk")
+    const leftovers = readdirSync(memoryDir("project", "ph")).filter((f) => f.endsWith(".tmp"))
+    expect(leftovers).toEqual([])
   })
 })

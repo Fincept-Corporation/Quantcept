@@ -1,13 +1,10 @@
 import { existsSync, mkdirSync } from "node:fs"
-import os from "node:os"
 import path from "node:path"
-
-const CONFIG_DIR_NAME = ".quantcept"
+import { translateFsWriteError } from "@shared/fsperm"
+import { configRoot } from "@shared/paths"
 
 /** Root of all Quantcept on-disk state. Override with QUANTCEPT_CONFIG_DIR. */
-export function configRoot(): string {
-  return process.env.QUANTCEPT_CONFIG_DIR ?? path.join(os.homedir(), CONFIG_DIR_NAME)
-}
+export { configRoot }
 
 export function dataDir(): string {
   return path.join(configRoot(), "data")
@@ -38,9 +35,23 @@ export function riskAuditFile(projectHashValue: string): string {
   return path.join(dataDir(), "risk", projectHashValue, "audit.jsonl")
 }
 
-/** Create a directory (and parents) if missing. Idempotent. */
+/** Directory for durable diagnostic logs (`~/.quantcept/logs`). */
+export function logsDir(): string {
+  return path.join(configRoot(), "logs")
+}
+/** Date-stamped (`YYYY-MM-DD`) append-only JSONL diagnostic log file. */
+export function logFile(stamp: string): string {
+  return path.join(logsDir(), `quantcept-${stamp}.jsonl`)
+}
+
+/** Create a directory (and parents) if missing. Idempotent. An unwritable target
+ *  surfaces as a readable StorageError instead of a raw errno. */
 export function ensureDir(dir: string): void {
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  try {
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  } catch (e) {
+    throw translateFsWriteError(e, dir)
+  }
 }
 
 // 32-bit FNV-1a → 8 hex chars. Stable, dependency-free.

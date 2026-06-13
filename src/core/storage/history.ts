@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs"
+import { renameSync, writeFileSync } from "node:fs"
 import { readJsonl } from "./jsonl"
 import { ensureDir, promptHistoryFile, stateDir } from "./paths"
 
@@ -23,5 +23,10 @@ export function pushHistory(text: string): void {
   entries.push({ text: trimmed, ts: Date.now() })
   const capped = entries.slice(-HISTORY_CAP)
   ensureDir(stateDir())
-  writeFileSync(promptHistoryFile(), `${capped.map((e) => JSON.stringify(e)).join("\n")}\n`)
+  // Atomic replace: write to a sibling temp file then rename over the target so a
+  // crash mid-write can't truncate history and concurrent writers can't clobber it.
+  const target = promptHistoryFile()
+  const tmp = `${target}.tmp`
+  writeFileSync(tmp, `${capped.map((e) => JSON.stringify(e)).join("\n")}\n`)
+  renameSync(tmp, target)
 }

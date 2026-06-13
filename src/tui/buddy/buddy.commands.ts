@@ -11,10 +11,10 @@ export function buddyCommands(buddy: Buddy): ActionCommand[] {
       kind: "action",
       id: "buddy",
       name: "buddy",
-      description: "Show your buddy, or: pet | mute | reroll | name <text>",
+      description: "Show your buddy, or: pet | mute | choose | name <text>",
       category: "Buddy",
       source: "builtin",
-      argChoices: ["pet", "mute", "reroll", "name"],
+      argChoices: ["pet", "mute", "choose", "name"],
       run(args, ctx) {
         const sub = args.trim().split(/\s+/)[0] ?? ""
         const rest = args.trim().slice(sub.length).trim()
@@ -28,9 +28,9 @@ export function buddyCommands(buddy: Buddy): ActionCommand[] {
           ctx.toast(m ? "Buddy muted." : "Buddy unmuted.")
           return
         }
-        if (sub === "reroll") {
-          buddy.reroll()
-          ctx.toast(`Say hello to ${buddy.companion().name}!`)
+        if (sub === "choose") {
+          buddy.openChooser()
+          ctx.toast("Pick your new companion…")
           return
         }
         if (sub === "name") {

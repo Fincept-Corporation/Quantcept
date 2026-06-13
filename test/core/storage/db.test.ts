@@ -28,4 +28,10 @@ describe("db", () => {
     expect(applied.c).toBeGreaterThanOrEqual(1)
     db.close()
   })
+  test("sets a non-zero busy_timeout so concurrent writers wait instead of throwing SQLITE_BUSY", () => {
+    const db = openDb()
+    const row = db.query("PRAGMA busy_timeout").get() as { timeout: number }
+    expect(row.timeout).toBeGreaterThan(0)
+    db.close()
+  })
 })

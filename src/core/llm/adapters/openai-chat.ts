@@ -1,5 +1,6 @@
 import type { ProviderConfig } from "@core/config/schema"
 import { ProviderError } from "@shared/errors"
+import { logger } from "@shared/logger"
 import type { ChatRequest, ChatResult, ContentBlock, Provider, StreamHandlers } from "../types"
 
 interface ToolCallAccum {
@@ -167,7 +168,11 @@ export class OpenAIChatAdapter implements Provider {
   async chat(req: ChatRequest, handlers?: StreamHandlers): Promise<ChatResult> {
     const { url, headers, body } = this.buildRequest({ ...req, stream: !!handlers?.onChunk })
     const response = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) })
-    if (!response.ok) throw new ProviderError(`LLM API error ${response.status}: ${await response.text()}`)
+    if (!response.ok) {
+      const errText = await response.text()
+      logger.error("LLM API error", { provider: "openai-chat", status: response.status })
+      throw new ProviderError(`LLM API error ${response.status}: ${errText}`)
+    }
     if (handlers?.onChunk) return this.consumeStream(response, handlers)
     return parseChatCompletion(await response.json())
   }

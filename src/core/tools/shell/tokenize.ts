@@ -50,6 +50,21 @@ export function tokenizeCommands(command: string): string[][] {
       endSeg()
       continue
     }
+    // A single & (background), $(...) command substitution, or backtick introduces a NEW command
+    // that must be permission-checked on its own — never let it hide inside the preceding segment.
+    if (c === "&" && next !== "&") {
+      endSeg()
+      continue
+    }
+    if (c === "$" && next === "(") {
+      endSeg()
+      i++ // skip the '('
+      continue
+    }
+    if (c === "`") {
+      endSeg()
+      continue
+    }
     tok += c
     tokStarted = true
   }

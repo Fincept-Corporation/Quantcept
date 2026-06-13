@@ -32,9 +32,20 @@ export async function fetchGit(
   destDir: string,
   spawn: SpawnFn = defaultSpawn,
 ): Promise<void> {
+  // Harden against argument injection: a value starting with '-' is parsed by git as an option
+  // (e.g. --upload-pack=<cmd>), and ext::/fd:: transports run arbitrary commands at clone time.
+  for (const [name, value] of Object.entries(opts)) {
+    if (typeof value === "string" && value.startsWith("-")) {
+      throw new QuantceptError(`git ${name} may not start with '-': ${value}`, "PLUGIN")
+    }
+  }
+  if (/^(ext|fd)::/i.test(opts.url)) {
+    throw new QuantceptError(`unsupported git url transport: ${opts.url}`, "PLUGIN")
+  }
+
   const cloneArgs = ["clone", "--depth", "1"]
   if (opts.ref) cloneArgs.push("--branch", opts.ref)
-  cloneArgs.push(opts.url, destDir)
+  cloneArgs.push("--", opts.url, destDir) // end-of-options: url/destDir can never be read as flags
   await git(spawn, cloneArgs)
 
   if (opts.sha) {
@@ -47,7 +58,11 @@ export async function fetchGit(
 
 /** Move <destDir>/<subdir> contents up into destDir, then drop the now-empty subdir. */
 function relocateSubdir(destDir: string, subdir: string): void {
-  const src = path.join(destDir, subdir)
+  const root = path.resolve(destDir)
+  const src = path.resolve(destDir, subdir)
+  if (src !== root && !src.startsWith(root + path.sep)) {
+    throw new QuantceptError(`plugin subdir escapes the plugin directory: ${subdir}`, "PLUGIN")
+  }
   for (const entry of fs.readdirSync(src)) {
     fs.renameSync(path.join(src, entry), path.join(destDir, entry))
   }

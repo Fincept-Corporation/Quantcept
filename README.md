@@ -15,11 +15,23 @@ npm install -g quantcept
 quantcept
 ```
 
-Works in PowerShell, cmd, or any shell once installed. The launcher resolves a
-prebuilt binary for your platform (macOS arm64/x64, Linux x64, Windows x64). On
-first run, Quantcept walks you through a quick login (email + one-time code); your
-key is stored at `~/.quantcept/settings.json`. **No API key or `.env` is required** —
-chat generation runs in the cloud by default.
+Works in PowerShell, cmd, macOS Terminal, and Linux shells once installed. The
+launcher resolves a prebuilt binary for your platform (macOS arm64/x64, Linux x64,
+Windows x64). On first run, Quantcept walks you through a quick login (email +
+one-time code); your key is stored at `~/.quantcept/settings.json`. **No API key or
+`.env` is required** — chat generation runs in the cloud by default.
+
+> **Windows PowerShell:** if `quantcept` fails with *"running scripts is disabled
+> on this system"* (`UnauthorizedAccess`), your machine's execution policy is
+> blocking the npm-generated `quantcept.ps1` launcher. Allow local scripts once:
+>
+> ```powershell
+> Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+> ```
+>
+> This is a per-machine Windows setting (it affects every npm-installed CLI), not a
+> Quantcept issue. Alternatively, run `quantcept` from **cmd.exe**, which is
+> unaffected.
 
 ### From source (for development)
 

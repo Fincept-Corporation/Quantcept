@@ -1,3 +1,4 @@
+import { QuantceptError } from "@shared/errors"
 import { z } from "zod/v4"
 
 /** Where a plugin (or a marketplace) is fetched from. */
@@ -34,7 +35,8 @@ export const PluginSourceSchema = z.discriminatedUnion("source", [
 ])
 export type PluginSource = z.infer<typeof PluginSourceSchema>
 
-const ARCHIVE_RE = /\.(tgz|tar\.gz|tar|zip)$/i
+const ARCHIVE_RE = /\.(tgz|tar\.gz|tar)$/i
+const ZIP_RE = /\.zip$/i
 const URL_RE = /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)/
 const OWNER_REPO_RE = /^[\w.-]+\/[\w.-]+$/
 const LOCAL_RE = /^(\.\.?[\\/]|~[\\/]?|[\\/])|^[a-zA-Z]:[\\/]/
@@ -49,6 +51,9 @@ export function parsePluginSource(raw: unknown): PluginSource {
   const s = raw.trim()
   if (s.startsWith("npm:")) return { source: "npm", package: s.slice(4) }
   if (s.startsWith("github:")) return { source: "github", repo: s.slice(7) }
+  // .zip is parseable here but the tarball extractor only runs `tar -xf`, which cannot read a
+  // zip — reject up front with a clear error instead of failing later with a confusing tar error.
+  if (ZIP_RE.test(s)) throw new QuantceptError("zip plugin archives are not supported (use .tar.gz)", "PLUGIN")
   if (LOCAL_RE.test(s)) return { source: "local", path: s }
   if (ARCHIVE_RE.test(s)) return { source: "tarball", url: s }
   if (URL_RE.test(s)) {

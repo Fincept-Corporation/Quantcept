@@ -270,4 +270,28 @@ describe("McpManager.addServer / removeServer", () => {
     expect(res.ok).toBe(true)
     expect(reg.get("mcp__live__go")).toBeDefined()
   })
+
+  test("removeServer mid-connect closes the in-flight client (no orphaned transport)", async () => {
+    const reg = new ToolRegistry()
+    let closed = false
+    // A client whose connect() never resolves — it is still pending when we remove it.
+    const pending = {
+      connect: () => new Promise<void>(() => {}),
+      listTools: async () => [],
+      callTool: async () => ({ output: "", isError: false }),
+      close: async () => {
+        closed = true
+      },
+    } as any
+    const mgr = new McpManager({ makeClient: () => pending, store: tmpStore() })
+    await mgr.start({ servers: {} }, reg)
+
+    // Kick off addServer but do NOT await it — its connect() hangs forever.
+    const adding = mgr.addServer("slow", stdio())
+    // Remove while the connect is still in flight.
+    await mgr.removeServer("slow")
+
+    expect(closed).toBe(true) // the in-flight client must be closed, not orphaned
+    void adding
+  })
 })

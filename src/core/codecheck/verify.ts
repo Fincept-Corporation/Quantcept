@@ -1,4 +1,4 @@
-import { freeTree, parse, query } from "@core/treesitter/engine"
+import { query, withParse } from "@core/treesitter/engine"
 import type { Lang } from "@core/treesitter/types"
 import type { Diagnostic, RulePack } from "./types"
 
@@ -8,11 +8,8 @@ import type { Diagnostic, RulePack } from "./types"
  * Engine-unavailable (null parse) yields [] — verification is never fatal.
  */
 export async function verify(text: string, lang: Lang, packs: RulePack[]): Promise<Diagnostic[]> {
-  const tree = await parse(text, lang)
-  if (!tree) return []
-
-  try {
-    const out: Diagnostic[] = []
+  const out = await withParse(text, lang, (tree) => {
+    const diagsAll: Diagnostic[] = []
     for (const pack of packs) {
       if (pack.lang !== lang) continue
       let diags: Diagnostic[] = []
@@ -30,12 +27,10 @@ export async function verify(text: string, lang: Lang, packs: RulePack[]): Promi
         }
       }
       if (pack.refine) diags = pack.refine(diags, tree)
-      out.push(...diags)
+      diagsAll.push(...diags)
     }
-
-    out.sort((a, b) => a.span.byteStart - b.span.byteStart)
-    return out
-  } finally {
-    freeTree(tree)
-  }
+    diagsAll.sort((a, b) => a.span.byteStart - b.span.byteStart)
+    return diagsAll
+  })
+  return out ?? []
 }

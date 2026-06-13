@@ -8,34 +8,32 @@ import { bonesFromSeed } from "./companion"
 import { fallbackSoul, generateSoul } from "./soul"
 import type { Companion, CompanionSoul, Mood } from "./types"
 
-function randomSeed(): string {
-  return crypto.randomUUID()
-}
-
 export const { use: useBuddy, provider: BuddyProvider } = createSimpleContext({
   name: "Buddy",
   init: () => {
     const kv = useKV()
 
-    // Ensure a stable seed exists.
-    let seed = kv.get("buddySeed") as string | undefined
-    if (!seed) {
-      seed = randomSeed()
-      kv.set("buddySeed", seed)
-    }
-    const [seedSig, setSeedSig] = createSignal(seed)
+    // A buddy exists only once the user has adopted one (a seed is persisted). Until then
+    // the Adopt screen owns the flow; we do NOT auto-create a random buddy here.
+    const existingSeed = kv.get("buddySeed") as string | undefined
+    const [seedSig, setSeedSig] = createSignal(existingSeed ?? "")
+    const [chosen, setChosen] = createSignal(Boolean(existingSeed))
+    // Set true to re-open the Adopt screen for an existing owner (/buddy choose).
+    const [choosing, setChoosing] = createSignal(false)
 
-    // Soul: instant curated fallback, upgraded by LLM in the background once.
+    // Soul: the persisted curated/LLM soul for an existing owner; a harmless placeholder
+    // otherwise (never rendered — BuddySprite mounts only behind the adopt gate).
     const storedSoul = kv.get("buddySoul") as CompanionSoul | undefined
-    const [soul, setSoul] = createSignal<CompanionSoul>(storedSoul ?? fallbackSoul(bonesFromSeed(seed), Date.now()))
-    if (!storedSoul) {
-      const initial = soul()
-      kv.set("buddySoul", initial)
-      // Best-effort background upgrade — never blocks, never throws to UI.
+    const [soul, setSoul] = createSignal<CompanionSoul>(
+      storedSoul ?? fallbackSoul(bonesFromSeed(seedSig()), Date.now()),
+    )
+
+    // Best-effort background LLM soul upgrade — never blocks, never throws to UI.
+    function upgradeSoul(seed: string, hatchedAt: number) {
       void (async () => {
         try {
           const provider = createProvider(loadConfig().provider)
-          const upgraded = await generateSoul(provider, bonesFromSeed(seedSig()), initial.hatchedAt)
+          const upgraded = await generateSoul(provider, bonesFromSeed(seed), hatchedAt)
           setSoul(upgraded)
           kv.set("buddySoul", upgraded)
         } catch {
@@ -55,6 +53,8 @@ export const { use: useBuddy, provider: BuddyProvider } = createSimpleContext({
 
     return {
       companion,
+      chosen,
+      choosing,
       reaction,
       petAt,
       muted,
@@ -77,13 +77,24 @@ export const { use: useBuddy, provider: BuddyProvider } = createSimpleContext({
         kv.set("buddyMuted", next)
         return next
       },
-      reroll() {
-        const next = randomSeed()
-        kv.set("buddySeed", next)
-        setSeedSig(next)
-        const fresh = fallbackSoul(bonesFromSeed(next), Date.now())
+      /** Commit a chosen candidate seed as the user's buddy and kick the LLM soul upgrade. */
+      adopt(seed: string) {
+        kv.set("buddySeed", seed)
+        setSeedSig(seed)
+        const fresh = fallbackSoul(bonesFromSeed(seed), Date.now())
         setSoul(fresh)
         kv.set("buddySoul", fresh)
+        setChosen(true)
+        setChoosing(false)
+        upgradeSoul(seed, fresh.hatchedAt)
+      },
+      /** Re-open the Adopt screen for an existing owner. */
+      openChooser() {
+        setChoosing(true)
+      },
+      /** Dismiss the Adopt screen without changing the current buddy (existing owners only). */
+      cancelChoosing() {
+        setChoosing(false)
       },
       setName(name: string) {
         const trimmed = name.slice(0, 16).trim()

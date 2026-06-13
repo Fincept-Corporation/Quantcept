@@ -20,4 +20,15 @@ describe("tokenizeCommands", () => {
     expect(tokenizeCommands("git status &&")).toEqual([["git", "status"]])
     expect(tokenizeCommands("")).toEqual([])
   })
+  test("command substitution $(...) surfaces the inner command as its own segment", () => {
+    const segs = tokenizeCommands("git log $(rm -rf x)")
+    expect(segs.some((s) => s[0] === "rm")).toBe(true)
+  })
+  test("backtick substitution surfaces the inner command", () => {
+    expect(tokenizeCommands("echo `rm -rf x`").some((s) => s[0] === "rm")).toBe(true)
+  })
+  test("single & (background) splits segments", () => {
+    const segs = tokenizeCommands("git push & rm -rf x")
+    expect(segs.some((s) => s[0] === "rm")).toBe(true)
+  })
 })

@@ -1,10 +1,10 @@
-import os from "os"
+import { CONFIG_DIR_NAME, configRoot } from "@shared/paths"
 import path from "path"
 
-export const CONFIG_DIR_NAME = ".quantcept"
+export { CONFIG_DIR_NAME }
 
 export function userConfigDir(): string {
-  return path.join(os.homedir(), CONFIG_DIR_NAME)
+  return configRoot()
 }
 
 export function projectConfigDir(cwd: string = process.cwd()): string {

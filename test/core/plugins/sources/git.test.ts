@@ -68,4 +68,37 @@ describe("fetchGit", () => {
     expect((err as QuantceptError).code).toBe("PLUGIN")
     expect((err as Error).message).toContain("fatal: repo not found")
   })
+
+  test("rejects a url starting with '-' (option injection) without spawning", async () => {
+    const { spawn, calls } = recorder()
+    await expect(fetchGit({ url: "--upload-pack=touch x" }, "/dest", spawn)).rejects.toBeInstanceOf(QuantceptError)
+    expect(calls.length).toBe(0)
+  })
+
+  test("rejects an ext:: transport url (RCE vector)", async () => {
+    const { spawn } = recorder()
+    await expect(fetchGit({ url: "ext::sh -c id" }, "/dest", spawn)).rejects.toBeInstanceOf(QuantceptError)
+  })
+
+  test("rejects a ref starting with '-'", async () => {
+    const { spawn } = recorder()
+    await expect(fetchGit({ url: "https://e.com/r.git", ref: "--evil" }, "/dest", spawn)).rejects.toBeInstanceOf(
+      QuantceptError,
+    )
+  })
+
+  test("clone ends options with '--' before the url positional", async () => {
+    const { spawn, calls } = recorder()
+    await fetchGit({ url: "https://e.com/r.git" }, "/dest", spawn)
+    const { args } = calls[0]!
+    expect(args).toContain("--")
+    expect(args.indexOf("--")).toBeLessThan(args.indexOf("https://e.com/r.git"))
+  })
+
+  test("rejects a subdir that escapes destDir (path traversal)", async () => {
+    const { spawn } = recorder()
+    await expect(
+      fetchGit({ url: "https://e.com/r.git", subdir: "../../etc" }, "/dest", spawn),
+    ).rejects.toBeInstanceOf(QuantceptError)
+  })
 })

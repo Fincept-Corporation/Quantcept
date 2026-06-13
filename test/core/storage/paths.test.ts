@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, existsSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { configRoot, dataDir, stateDir, sessionsDir, dbFile, promptHistoryFile, ensureDir, projectHash } from "@core/storage/paths"
+import { configRoot, dataDir, stateDir, sessionsDir, dbFile, promptHistoryFile, ensureDir, projectHash, logsDir, logFile } from "@core/storage/paths"
 
 let tmp: string
 beforeEach(() => {
@@ -33,5 +33,9 @@ describe("paths", () => {
     expect(projectHash("/repo/a")).toBe(projectHash("/repo/a"))
     expect(projectHash("/repo/a")).not.toBe(projectHash("/repo/b"))
     expect(projectHash("/repo/a")).toMatch(/^[a-f0-9]{8,}$/)
+  })
+  test("log paths live under logs/ and are date-stamped jsonl", () => {
+    expect(logsDir()).toBe(join(tmp, "logs"))
+    expect(logFile("2026-06-13")).toBe(join(tmp, "logs", "quantcept-2026-06-13.jsonl"))
   })
 })

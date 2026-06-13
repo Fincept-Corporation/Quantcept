@@ -4,7 +4,8 @@ import type { ActionCommand } from "@ext/commands/types"
 import { type CliRenderer, type CliRendererConfig, createCliRenderer } from "@opentui/core"
 import { createDefaultOpenTuiKeymap } from "@opentui/keymap/opentui"
 import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
-import { resetLogFloor, setLogFloor } from "@shared/logger"
+import { logger, resetLogFloor, setLogContext, setLogFloor } from "@shared/logger"
+import { AdoptScreen } from "@tui/buddy/AdoptScreen"
 import { BuddyProvider, useBuddy } from "@tui/buddy/BuddyContext"
 import { buddyCommands } from "@tui/buddy/buddy.commands"
 import { AuthGate } from "@tui/components/auth/AuthGate"
@@ -48,6 +49,12 @@ export function rendererConfig(): CliRendererConfig {
     useKittyKeyboard: {},
     autoFocus: false,
     useMouse: true,
+    // OpenTUI runs its native render/input loop on a background thread by
+    // default (useThread=true) everywhere except Linux, which it force-disables.
+    // On Windows that thread deadlocks against the console under legacy conhost
+    // (cmd.exe) — the TUI accepts a few keystrokes, then freezes. Run
+    // single-threaded on Windows too, matching OpenTUI's own Linux carve-out.
+    ...(process.platform === "win32" ? { useThread: false } : {}),
   }
 }
 
@@ -69,6 +76,8 @@ type AppInput = {
 export function startApp(input: AppInput): AppHandle {
   const unguard = win32InstallCtrlCGuard()
   win32DisableProcessedInput()
+  // Correlate every log line from this run with its project.
+  setLogContext({ projectHash: projectHash() })
   // The TUI owns the screen; keep non-error logs off stderr so they don't
   // bleed onto the rendered output. Restored when the renderer is torn down.
   setLogFloor("error")
@@ -91,6 +100,10 @@ export function startApp(input: AppInput): AppHandle {
     unguard?.()
     if (reason) {
       const formatted = reason instanceof Error ? reason.message : String(reason)
+      logger.error("app exited with error", {
+        error: formatted,
+        stack: reason instanceof Error ? reason.stack : undefined,
+      })
       if (formatted) process.stderr.write(formatted + "\n")
     }
     const text = message()
@@ -106,6 +119,10 @@ export function startApp(input: AppInput): AppHandle {
   })
 
   const ready = mountApp({ ...input, keymap, exit }).catch((error) => {
+    logger.error("app mount failed", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    })
     if (!renderer.isDestroyed) renderer.destroy()
     resolveExited()
     throw error
@@ -301,16 +318,20 @@ function App() {
             <AuthGate />
           </Match>
           <Match when={auth.status === "authed" || auth.status === "offline"}>
-            <Switch>
-              <Match when={route.data.type === "home"}>
-                <Home />
-              </Match>
-              <Match when={route.data.type === "session"}>
-                <Show when={(route.data as SessionRoute).sessionID} keyed>
-                  {(_sessionID) => <Session />}
-                </Show>
-              </Match>
-            </Switch>
+            {/* First-run gate: pick a buddy before the dashboard. Existing owners (a seed is
+                already persisted) skip straight through; `/buddy choose` re-opens it. */}
+            <Show when={buddy.chosen() && !buddy.choosing()} fallback={<AdoptScreen />}>
+              <Switch>
+                <Match when={route.data.type === "home"}>
+                  <Home />
+                </Match>
+                <Match when={route.data.type === "session"}>
+                  <Show when={(route.data as SessionRoute).sessionID} keyed>
+                    {(_sessionID) => <Session />}
+                  </Show>
+                </Match>
+              </Switch>
+            </Show>
           </Match>
         </Switch>
       </box>

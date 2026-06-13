@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync } from "fs"
+import { mkdtempSync, readdirSync, rmSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 import { HISTORY_CAP, loadHistory, pushHistory } from "@core/storage/history"
+import { stateDir } from "@core/storage/paths"
 
 let tmp: string
 beforeEach(() => {
@@ -33,5 +34,11 @@ describe("prompt history", () => {
     const h = loadHistory()
     expect(h.length).toBe(HISTORY_CAP)
     expect(h[h.length - 1]).toBe(`p${HISTORY_CAP + 9}`) // newest kept
+  })
+  test("pushHistory leaves no .tmp file behind (atomic replace)", () => {
+    pushHistory("first")
+    pushHistory("second")
+    const leftovers = readdirSync(stateDir()).filter((f) => f.endsWith(".tmp"))
+    expect(leftovers).toEqual([])
   })
 })

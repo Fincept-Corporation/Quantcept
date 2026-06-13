@@ -5,7 +5,7 @@ import { QuantceptError } from "@shared/errors"
 
 /** Extract an archive into destDir, stripping the single nested top dir (github/npm convention). */
 async function defaultExtract(archivePath: string, destDir: string): Promise<void> {
-  // .zip is not handled by system tar everywhere — left as a TODO; tar covers tgz/tar.gz/tar.
+  // tar covers tgz/tar.gz/tar; .zip is rejected up front in parsePluginSource (system tar can't read it).
   const proc = Bun.spawn(["tar", "-xf", archivePath, "-C", destDir, "--strip-components=1"])
   const code = await proc.exited
   if (code !== 0) throw new QuantceptError(`tarball extract failed (tar exit ${code}): ${archivePath}`, "PLUGIN")

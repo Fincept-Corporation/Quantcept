@@ -107,10 +107,16 @@ export class OrderOutbox {
       .run(fill.brokerOrderId, fill.fillPrice, Date.now(), key)
   }
 
-  /** Mark a written intent failed (the broker placement did not succeed). */
+  /**
+   * Mark a written intent failed (the broker placement did not succeed). Status-guarded to
+   * `pending` so a throw on the post-fill path (ledger apply / audit write) can never demote
+   * an already-`filled` row back to `failed` and erase the record of a real broker fill.
+   */
   markFailed(key: string): void {
     this.db
-      .query("UPDATE order_outbox SET status = 'failed', updated_at = ? WHERE idempotency_key = ?")
+      .query(
+        "UPDATE order_outbox SET status = 'failed', updated_at = ? WHERE idempotency_key = ? AND status = 'pending'",
+      )
       .run(Date.now(), key)
   }
 

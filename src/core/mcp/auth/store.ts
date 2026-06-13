@@ -1,6 +1,7 @@
 import { userConfigDir } from "@core/config/paths"
 import type { OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js"
 import type { OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js"
+import { writeOwnerFile } from "@shared/fsperm"
 import { logger } from "@shared/logger"
 import fs from "fs"
 import path from "path"
@@ -30,15 +31,9 @@ export class McpAuthStore {
   }
 
   private writeAll(data: AuthFile): void {
-    fs.mkdirSync(path.dirname(this.file), { recursive: true })
-    fs.writeFileSync(this.file, JSON.stringify(data, null, 2), { mode: 0o600 })
-    // mode on writeFileSync is ignored when the file already exists; tighten explicitly.
-    // Best-effort: chmod is a no-op/throws on some Windows filesystems.
-    try {
-      fs.chmodSync(this.file, 0o600)
-    } catch {
-      // ignore — restrictive perms are best-effort on non-POSIX filesystems
-    }
+    // OAuth tokens: owner-only write (0600 + Windows ACL lockdown); an unwritable
+    // path surfaces as a readable StorageError. See @shared/fsperm.writeOwnerFile.
+    writeOwnerFile(this.file, JSON.stringify(data, null, 2))
   }
 
   private update(server: string, patch: (rec: McpAuthRecord) => McpAuthRecord): void {

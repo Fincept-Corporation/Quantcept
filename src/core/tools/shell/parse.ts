@@ -1,4 +1,4 @@
-import { parse, query } from "@core/treesitter/engine"
+import { query, withParse } from "@core/treesitter/engine"
 import type { Lang } from "@core/treesitter/types"
 import type { ShellKind } from "./args"
 import { labelFor } from "./labels"
@@ -32,9 +32,12 @@ function langFor(kind: ShellKind): Lang | null {
 export async function describeCommand(command: string, kind: ShellKind): Promise<CommandPart[]> {
   const lang = langFor(kind)
   if (!lang) return fallbackParts(command)
-  const tree = await parse(command, lang)
-  if (!tree) return fallbackParts(command)
-  const caps = query(tree, "(command) @cmd", lang)
-  if (!caps.length) return fallbackParts(command)
-  return caps.map((c) => toPart(nameOf(c.node), c.node.text))
+  // withParse frees the wasm tree on every path; node text is read into plain
+  // strings inside the callback, before the tree is released.
+  const parts = await withParse(command, lang, (tree) => {
+    const caps = query(tree, "(command) @cmd", lang)
+    if (!caps.length) return null
+    return caps.map((c) => toPart(nameOf(c.node), c.node.text))
+  })
+  return parts ?? fallbackParts(command)
 }

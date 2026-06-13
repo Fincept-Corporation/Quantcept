@@ -236,9 +236,12 @@ export class JobStore {
   claimDue(projectHashValue: string, now: number): Job[] {
     const rows = this.db
       .query(
+        // Only 'pending' is auto-claimable. A 'paused' job (needs-human / budget / max-turns)
+        // has next_run_at = NULL and must NOT be re-run every tick — it re-enters only via an
+        // explicit resume() -> 'pending'.
         `SELECT * FROM job
          WHERE project_hash = ?
-           AND status IN ('pending', 'paused')
+           AND status = 'pending'
            AND (next_run_at IS NULL OR next_run_at <= ?)
          ORDER BY created_at ASC`,
       )

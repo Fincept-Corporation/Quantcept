@@ -1,4 +1,5 @@
 import { FinceptAuthError, FinceptError, InsufficientCreditsError, SocialLoginRequiredError } from "@shared/errors"
+import { logger } from "@shared/logger"
 import { publishCredits } from "./credits"
 import { fetchTransport, type HttpTransport } from "./http"
 import { publishSessionInvalidated } from "./session-events"
@@ -73,6 +74,7 @@ export class FinceptClient {
     try {
       return await this.transport(url, { ...init, signal: ctrl.signal })
     } catch (e) {
+      logger.warn("fincept network error", { error: (e as Error)?.message ?? String(e) })
       throw new FinceptError(`network error: ${(e as Error)?.message ?? String(e)}`, "NETWORK")
     } finally {
       clearTimeout(timer)
@@ -111,7 +113,10 @@ export class FinceptClient {
 
     const num = (h: string) => {
       const v = res.headers.get(h)
-      return v == null ? undefined : Number(v)
+      // A present-but-empty/whitespace header would coerce to Number("") === 0,
+      // which would falsely zero the displayed balance — treat it as absent.
+      if (v == null || v.trim() === "") return undefined
+      return Number(v)
     }
     const creditsBalance = num("Credits-Balance")
     // Keep the displayed balance in sync everywhere: any response carrying the header updates it.

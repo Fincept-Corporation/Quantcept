@@ -138,6 +138,14 @@ describe("JobStore", () => {
     expect(due.map((j) => j.id)).not.toContain("j1")
   })
 
+  test("claimDue: a paused job is NOT returned — only resume() re-enters it", () => {
+    const job = store.create({ id: "j1", cwd: "/repo/a", goal: "test" })
+    store.pause("j1", "needs-human")
+    expect(store.claimDue(job.projectHash, Date.now()).map((j) => j.id)).not.toContain("j1")
+    store.resume("j1")
+    expect(store.claimDue(job.projectHash, Date.now()).map((j) => j.id)).toContain("j1")
+  })
+
   test("claimDue: job with next_run_at in the future is NOT returned", () => {
     const job = store.create({ id: "j1", cwd: "/repo/a", goal: "test" })
     store.setNextRun("j1", Date.now() + 999_999)

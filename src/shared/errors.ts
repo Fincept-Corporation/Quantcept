@@ -29,6 +29,15 @@ export class ToolError extends QuantceptError {
   }
 }
 
+/** A filesystem write/create failure (permission, read-only FS, disk full) on a
+ *  Quantcept config/state path — carries a readable message instead of a raw errno. */
+export class StorageError extends QuantceptError {
+  constructor(message: string) {
+    super(message, "STORAGE")
+    this.name = "StorageError"
+  }
+}
+
 export class FinceptError extends QuantceptError {
   constructor(message: string, code = "FINCEPT") {
     super(message, code)

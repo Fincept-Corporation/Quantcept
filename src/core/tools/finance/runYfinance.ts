@@ -37,7 +37,13 @@ export async function runYfinance(ticker: string, kind: YfKind, opts?: { period?
     proc.kill()
   }, TIMEOUT_MS)
   try {
-    const out = await new Response(proc.stdout as ReadableStream<Uint8Array>).text()
+    // Drain stdout AND stderr concurrently: yfinance/pandas are chatty on stderr, and a piped
+    // stderr that nobody reads will fill the OS pipe buffer (~64KB) and deadlock the child on
+    // its next write, so the process never exits. We read both before awaiting exit.
+    const [out] = await Promise.all([
+      new Response(proc.stdout as ReadableStream<Uint8Array>).text(),
+      new Response(proc.stderr as ReadableStream<Uint8Array>).text(),
+    ])
     await proc.exited
     if (timedOut) return { error: `yfinance call timed out after ${TIMEOUT_MS}ms` }
     const lastLine = out.trim().split("\n").at(-1) ?? "{}"

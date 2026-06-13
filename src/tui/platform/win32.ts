@@ -3,6 +3,24 @@ import type { ReadStream } from "node:tty"
 
 const STD_INPUT_HANDLE = -10
 const ENABLE_PROCESSED_INPUT = 0x0001
+const ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
+
+/**
+ * The console input mode the TUI needs on Windows, derived from the current mode:
+ * - ENABLE_PROCESSED_INPUT cleared, so Ctrl+C arrives as a stdin byte (0x03)
+ *   instead of being swallowed as a CTRL_C_EVENT.
+ * - ENABLE_VIRTUAL_TERMINAL_INPUT set, so legacy conhost (cmd.exe) translates
+ *   keypresses into the VT/xterm escape sequences OpenTUI's parser expects.
+ *   Without it, Enter/Tab/arrows are dropped or mis-parsed on conhost; they only
+ *   work in Windows Terminal because it enables VT input by default.
+ *
+ * All other bits are preserved, so this composes with whatever raw-mode flags
+ * Bun/OpenTUI have set (Bun's setRawMode rewrites the whole mode word on Windows,
+ * which is why the guard re-applies this after every toggle — see oven-sh/bun#25663).
+ */
+export function desiredInputMode(mode: number): number {
+  return ((mode & ~ENABLE_PROCESSED_INPUT) | ENABLE_VIRTUAL_TERMINAL_INPUT) >>> 0
+}
 
 const kernel = () =>
   dlopen("kernel32.dll", {
@@ -25,7 +43,9 @@ function load() {
 }
 
 /**
- * Clear ENABLE_PROCESSED_INPUT on the console stdin handle.
+ * Put the console stdin handle into the mode the TUI needs: clear
+ * ENABLE_PROCESSED_INPUT and set ENABLE_VIRTUAL_TERMINAL_INPUT (see
+ * `desiredInputMode`).
  */
 export function win32DisableProcessedInput() {
   if (process.platform !== "win32") return
@@ -37,8 +57,9 @@ export function win32DisableProcessedInput() {
   if (k32!.symbols.GetConsoleMode(handle, ptr(buf)) === 0) return
 
   const mode = buf[0]!
-  if ((mode & ENABLE_PROCESSED_INPUT) === 0) return
-  k32!.symbols.SetConsoleMode(handle, mode & ~ENABLE_PROCESSED_INPUT)
+  const desired = desiredInputMode(mode)
+  if (desired === mode) return
+  k32!.symbols.SetConsoleMode(handle, desired)
 }
 
 /**
@@ -56,14 +77,18 @@ export function win32FlushInputBuffer() {
 let unhook: (() => void) | undefined
 
 /**
- * Keep ENABLE_PROCESSED_INPUT disabled.
+ * Keep the console input mode pinned to what the TUI needs (see
+ * `desiredInputMode`): ENABLE_PROCESSED_INPUT disabled and
+ * ENABLE_VIRTUAL_TERMINAL_INPUT enabled.
  *
  * On Windows, Ctrl+C becomes a CTRL_C_EVENT (instead of stdin input) when
- * ENABLE_PROCESSED_INPUT is set. Various runtimes can re-apply console modes
- * (sometimes on a later tick), and the flag is console-global, not per-process.
+ * ENABLE_PROCESSED_INPUT is set, and conhost only emits VT key sequences when
+ * ENABLE_VIRTUAL_TERMINAL_INPUT is set. Various runtimes re-apply console modes
+ * (Bun's setRawMode rewrites the whole word on Windows, sometimes on a later
+ * tick), and the mode is console-global, not per-process.
  *
  * We combine:
- * - A `setRawMode(...)` hook to re-clear after known raw-mode toggles.
+ * - A `setRawMode(...)` hook to re-apply after known raw-mode toggles.
  * - A low-frequency poll as a backstop for native/external mode changes.
  */
 export function win32InstallCtrlCGuard() {
@@ -84,8 +109,9 @@ export function win32InstallCtrlCGuard() {
   const enforce = () => {
     if (k32!.symbols.GetConsoleMode(handle, ptr(buf)) === 0) return
     const mode = buf[0]!
-    if ((mode & ENABLE_PROCESSED_INPUT) === 0) return
-    k32!.symbols.SetConsoleMode(handle, mode & ~ENABLE_PROCESSED_INPUT)
+    const desired = desiredInputMode(mode)
+    if (desired === mode) return
+    k32!.symbols.SetConsoleMode(handle, desired)
   }
 
   // Some runtimes can re-apply console modes on the next tick; enforce twice.

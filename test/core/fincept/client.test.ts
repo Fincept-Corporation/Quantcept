@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { FinceptClient } from "@core/fincept/client"
+import { subscribeCredits } from "@core/fincept/credits"
 import { FinceptAuthError } from "@shared/errors"
 
 const realFetch = globalThis.fetch
@@ -22,6 +23,43 @@ describe("FinceptClient", () => {
     expect(r.data.ok).toBe(1)
     expect(r.creditsBalance).toBe(349)
     expect(r.creditsCost).toBe(1)
+  })
+
+  test("present-but-empty Credits-Balance header does NOT zero the balance", async () => {
+    const published: number[] = []
+    const unsub = subscribeCredits((b) => published.push(b))
+    try {
+      stub(200, { success: true, data: { ok: 1 } }, { "Credits-Balance": "", "Credits-Cost": "" })
+      const r = await new FinceptClient("http://x").request<{ ok: number }>({
+        method: "GET",
+        path: "/v1/x",
+        token: "t",
+      })
+      expect(r.creditsBalance).toBeUndefined()
+      expect(r.creditsCost).toBeUndefined()
+      // An empty header must never publish a (falsely zero) balance to the UI.
+      expect(published).not.toContain(0)
+      expect(published).toEqual([])
+    } finally {
+      unsub()
+    }
+  })
+
+  test("whitespace-only Credits-Balance header does NOT zero the balance", async () => {
+    const published: number[] = []
+    const unsub = subscribeCredits((b) => published.push(b))
+    try {
+      stub(200, { success: true, data: { ok: 1 } }, { "Credits-Balance": "   " })
+      const r = await new FinceptClient("http://x").request<{ ok: number }>({
+        method: "GET",
+        path: "/v1/x",
+        token: "t",
+      })
+      expect(r.creditsBalance).toBeUndefined()
+      expect(published).toEqual([])
+    } finally {
+      unsub()
+    }
   })
 
   test("401 -> FinceptAuthError", async () => {

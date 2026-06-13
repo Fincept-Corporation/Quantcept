@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { MarketplaceSchema, parsePluginSource } from "@core/plugins/marketplace"
+import { QuantceptError } from "@shared/errors"
 
 describe("parsePluginSource", () => {
   test("github shorthand (prefixed and bare owner/repo)", () => {
@@ -13,6 +14,20 @@ describe("parsePluginSource", () => {
 
   test("tarball url (archive extension)", () => {
     expect(parsePluginSource("https://x.com/p.tgz")).toEqual({ source: "tarball", url: "https://x.com/p.tgz" })
+    expect(parsePluginSource("https://x.com/p.tar.gz")).toEqual({ source: "tarball", url: "https://x.com/p.tar.gz" })
+    expect(parsePluginSource("https://x.com/p.tar")).toEqual({ source: "tarball", url: "https://x.com/p.tar" })
+  })
+
+  test("rejects .zip archives with a QuantceptError (PLUGIN)", () => {
+    expect(() => parsePluginSource("https://x.com/p.zip")).toThrow(QuantceptError)
+    expect(() => parsePluginSource("https://x.com/p.zip")).toThrow(/zip plugin archives are not supported/i)
+    try {
+      parsePluginSource("./local-plugin.zip")
+      throw new Error("expected parsePluginSource to throw")
+    } catch (err) {
+      expect(err).toBeInstanceOf(QuantceptError)
+      expect((err as QuantceptError).code).toBe("PLUGIN")
+    }
   })
 
   test("npm package", () => {

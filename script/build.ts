@@ -21,7 +21,8 @@ const allTargets = [
   { os: "darwin", arch: "arm64" },
   { os: "darwin", arch: "x64" },
   { os: "linux", arch: "x64" },
-  { os: "win32", arch: "x64" },
+  { os: "linux", arch: "arm64" }, // Graviton / Raspberry Pi / ARM servers (bun-linux-arm64)
+  { os: "win32", arch: "x64" }, // Bun has no stable bun-windows-arm64 --compile target yet
 ] as const
 
 const targets = singleFlag

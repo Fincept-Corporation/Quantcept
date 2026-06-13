@@ -92,6 +92,17 @@ describe("OrderOutbox — markFilled / markFailed", () => {
     o.close()
   })
 
+  test("markFailed does NOT demote an already-filled row (post-fill error must not erase the fill)", () => {
+    const o = new OrderOutbox()
+    o.writeIntent("guard-1", intent())
+    o.markFilled("guard-1", { brokerOrderId: "bo-9", fillPrice: 50 })
+    o.markFailed("guard-1")
+    const row = o.get("guard-1")
+    expect(row?.status).toBe("filled")
+    expect(row?.brokerOrderId).toBe("bo-9")
+    o.close()
+  })
+
   test("markFilled bumps updatedAt past createdAt", () => {
     const o = new OrderOutbox()
     o.writeIntent("ts-1", intent())

@@ -4,6 +4,7 @@ import type { PermissionRule } from "@core/permissions/rules"
 import { evaluate } from "@core/permissions/rules"
 import type { PermissionDecision, PermissionMode } from "@core/permissions/schema"
 import type { RiskVerdict } from "@core/risk/limits"
+import { logger } from "@shared/logger"
 import { effectClassOf } from "./effects"
 import { type EffectPolicy, evaluatePolicy } from "./policy"
 import type { Tool, ToolResult } from "./Tool"
@@ -137,6 +138,11 @@ export async function executeTool(tool: Tool, rawInput: unknown, ctx: ExecutorCo
     return result
   } catch (e) {
     if (ctx.snapshot && preSnapshot) await ctx.snapshot.revertTo(preSnapshot)
+    logger.error("tool execution failed", {
+      tool: tool.name,
+      error: e instanceof Error ? e.message : String(e),
+      reverted: Boolean(ctx.snapshot && preSnapshot),
+    })
     return { output: `Tool ${tool.name} failed: ${e instanceof Error ? e.message : String(e)}`, isError: true }
   }
 }

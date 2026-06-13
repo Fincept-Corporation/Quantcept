@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { indexFile, type MemoryScope, memoryDir, slugify, topicFile } from "./paths"
 
@@ -86,7 +86,11 @@ export function forget(scope: MemoryScope, projectHash: string | undefined, slug
     const kept = readFileSync(idx, "utf8")
       .split("\n")
       .filter((l) => !l.includes(`(${slug}.md)`))
-    writeFileSync(idx, kept.join("\n"))
+    // Atomic replace: write to a sibling temp file then rename over the index so a
+    // crash mid-write can't truncate MEMORY.md and concurrent writers can't clobber it.
+    const tmp = `${idx}.tmp`
+    writeFileSync(tmp, kept.join("\n"))
+    renameSync(tmp, idx)
   }
   return existed
 }

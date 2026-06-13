@@ -1,5 +1,6 @@
 import type { ProviderConfig } from "@core/config/schema"
 import { ProviderError } from "@shared/errors"
+import { logger } from "@shared/logger"
 import type { ChatRequest, ChatResult, ContentBlock, Provider, StreamHandlers } from "../types"
 
 function toWireContent(content: string | ContentBlock[]): unknown {
@@ -168,6 +169,7 @@ export class AnthropicMessagesAdapter implements Provider {
     const response = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) })
     if (!response.ok) {
       const errText = await response.text()
+      logger.error("LLM API error", { provider: this.id, status: response.status })
       throw new ProviderError(`LLM API error ${response.status}: ${errText}`)
     }
     if (handlers?.onChunk) return this.consumeStream(response, handlers)
@@ -177,6 +179,7 @@ export class AnthropicMessagesAdapter implements Provider {
   private async consumeJson(response: Response): Promise<ChatResult> {
     const result: any = await response.json()
     if (result.base_resp && result.base_resp.status_code !== 0) {
+      logger.error("LLM provider error", { provider: this.id, status: result.base_resp.status_code })
       throw new ProviderError(`LLM error: ${result.base_resp.status_msg}`)
     }
     const text = (result.content ?? [])

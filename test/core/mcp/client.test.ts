@@ -58,6 +58,22 @@ describe("McpClient (stdio)", () => {
     expect(r.isError).toBe(true)
   })
 
+  test("callTool rejects when the server hangs past the configured timeout", async () => {
+    const c = new McpClient(
+      "fs",
+      { type: "stdio", command: "x", args: [], enabled: true, timeout: 20 },
+      () =>
+        ({
+          connect: async () => {},
+          listTools: async () => ({ tools: [] }),
+          callTool: () => new Promise(() => {}), // never resolves
+          close: async () => {},
+        }) as any,
+    )
+    await c.connect()
+    await expect(c.callTool("slow", {})).rejects.toThrow()
+  })
+
   test("closes the client if connect fails (no leak)", async () => {
     let closed = false
     const failing = {

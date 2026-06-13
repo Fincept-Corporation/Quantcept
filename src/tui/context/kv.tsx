@@ -1,3 +1,4 @@
+import { logger } from "@shared/logger"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
 import os from "os"
 import path from "path"
@@ -45,7 +46,10 @@ export const { use: useKV, provider: KVProvider } = createSimpleContext({
         write = write
           .then(() => writeFileSync(filePath, JSON.stringify(snapshot, null, 2)))
           .catch((error) => {
-            console.error("Failed to write KV state", { filePath, error })
+            logger.error("failed to write KV state", {
+              filePath,
+              error: error instanceof Error ? error.message : String(error),
+            })
           })
       },
     }

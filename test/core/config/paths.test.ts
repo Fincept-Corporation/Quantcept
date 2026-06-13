@@ -10,4 +10,12 @@ describe("config paths", () => {
   test("projectConfigDir is <cwd>/.quantcept", () => {
     expect(projectConfigDir("/tmp/proj")).toBe(path.join("/tmp/proj", ".quantcept"))
   })
+  test("userConfigDir honors QUANTCEPT_CONFIG_DIR so settings live with the data tree", () => {
+    process.env.QUANTCEPT_CONFIG_DIR = "/tmp/qc-custom"
+    try {
+      expect(userConfigDir()).toBe("/tmp/qc-custom")
+    } finally {
+      delete process.env.QUANTCEPT_CONFIG_DIR
+    }
+  })
 })

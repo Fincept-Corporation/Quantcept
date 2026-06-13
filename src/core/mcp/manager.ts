@@ -108,11 +108,14 @@ export class McpManager {
 
   // Non-OAuth (stdio + open/static-header http): connect, list, and register.
   private async connectAndRegister(rec: ServerRecord, client: ManagedClient): Promise<boolean> {
+    // Track the client on the record up front — BEFORE connect() — so that a concurrent
+    // disconnect()/removeServer() mid-handshake can close the in-flight transport (the spawned
+    // subprocess / open socket) instead of orphaning it once connect() finally resolves.
+    rec.client = client
     try {
       await client.connect()
       const defs = await client.listTools()
       this.registerDefs(rec, defs, client)
-      rec.client = client
       rec.state = "connected"
       return true
     } catch (e) {
@@ -133,11 +136,11 @@ export class McpManager {
     }
     const provider = this.makeProvider(rec.name, s, "http://127.0.0.1:0/callback", async () => {})
     const client = this.makeClient(rec.name, s, provider)
+    rec.client = client // track before connect so a mid-handshake disconnect can close it
     try {
       await client.connect()
       const defs = await client.listTools()
       this.registerDefs(rec, defs, client)
-      rec.client = client
       rec.state = "connected"
     } catch (e) {
       if (isUnauthorized(e)) {
@@ -169,6 +172,7 @@ export class McpManager {
       if (!opened) logger.warn("Could not open a browser; authorize manually", { url: authUrl })
     })
     const client = this.makeClient(name, s, provider)
+    rec.client = client // track before the (possibly long) browser+connect flow so it can be closed
 
     try {
       try {
@@ -184,7 +188,6 @@ export class McpManager {
       }
       const defs = await client.listTools()
       this.registerDefs(rec, defs, client)
-      rec.client = client
       rec.state = "connected"
       return { ok: true, message: `Authenticated ${name} — ${defs.length} tool(s) available`, toolCount: defs.length }
     } catch (e) {

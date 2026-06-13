@@ -1,6 +1,14 @@
+import { installFileLogSink } from "@core/storage/logsink"
+import { installCrashHandlers } from "@shared/logger"
 import { VERSION } from "@shared/version"
 import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
+
+// Durable diagnostics for every entry path (TUI, jobs, verify, plugin) and the
+// compiled binary: persist logs to ~/.quantcept/logs and capture crashes there
+// before the process dies.
+installFileLogSink()
+installCrashHandlers()
 
 yargs(hideBin(process.argv))
   .scriptName("quantcept")

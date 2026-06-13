@@ -1,3 +1,4 @@
+import { logger } from "@shared/logger"
 import { grammarWasm, runtimeWasm } from "./grammars"
 import type { Capture, Lang, QMatch, Span } from "./types"
 
@@ -30,6 +31,26 @@ export function freeTree(tree: Any): void {
   }
 }
 
+/** Run `fn` with a parsed tree, then free the tree's wasm allocation — even if `fn` throws. */
+export function usingTree<T>(tree: Any, fn: (tree: Any) => T): T {
+  try {
+    return fn(tree)
+  } finally {
+    freeTree(tree)
+  }
+}
+
+/**
+ * Parse `text` and run `fn` with the resulting tree, freeing it afterwards no matter what.
+ * Returns `null` (without calling `fn`) when parsing fails. Removes the forget-to-free
+ * footgun — callers should prefer this over manual `parse`/`freeTree` pairs.
+ */
+export async function withParse<T>(text: string, lang: Lang, fn: (tree: Any) => T): Promise<T | null> {
+  const tree = await parse(text, lang)
+  if (!tree) return null
+  return usingTree(tree, fn)
+}
+
 /** Convert a web-tree-sitter node into a pure Span. */
 export function spanOf(node: Any): Span {
   return {
@@ -59,7 +80,8 @@ export async function parse(text: string, lang: Lang): Promise<Any | null> {
       parserCache.set(lang, parser)
     }
     return parser.parse(text)
-  } catch {
+  } catch (e) {
+    logger.warn("treesitter parse failed", { lang, error: e instanceof Error ? e.message : String(e) })
     return null
   }
 }
@@ -82,7 +104,12 @@ export function query(tree: Any, scm: string, lang: Lang): Capture[] {
     const q = compile(scm, lang)
     if (!q) return []
     return q.captures(tree.rootNode).map((c: Any) => ({ name: c.name, span: spanOf(c.node), node: c.node }))
-  } catch {
+  } catch (e) {
+    logger.warn("treesitter query failed", {
+      lang,
+      scm: scm.slice(0, 80),
+      error: e instanceof Error ? e.message : String(e),
+    })
     return []
   }
 }
@@ -95,7 +122,12 @@ export function queryMatches(tree: Any, scm: string, lang: Lang): QMatch[] {
     return q.matches(tree.rootNode).map((m: Any) => ({
       captures: m.captures.map((c: Any) => ({ name: c.name, span: spanOf(c.node), node: c.node })),
     }))
-  } catch {
+  } catch (e) {
+    logger.warn("treesitter queryMatches failed", {
+      lang,
+      scm: scm.slice(0, 80),
+      error: e instanceof Error ? e.message : String(e),
+    })
     return []
   }
 }

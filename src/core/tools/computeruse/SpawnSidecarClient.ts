@@ -34,6 +34,24 @@ export class SpawnSidecarClient implements SidecarClient {
     this.proc = Bun.spawn([binaryPath, ...args], { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
     this.stdin = this.proc.stdin as unknown as Bun.FileSink
     void this.consume()
+    void this.drainStderr()
+  }
+
+  /**
+   * Continuously read and discard the sidecar's stderr. A piped stderr that nobody consumes will
+   * fill the OS pipe buffer (~64KB) and block the child on its next write, wedging this long-lived
+   * process forever. We drain it (rather than `stderr: "ignore"`) so a future caller can tap it;
+   * chunks are dropped immediately, so nothing is retained.
+   */
+  private async drainStderr(): Promise<void> {
+    const stderr = this.proc.stderr as unknown as AsyncIterable<Uint8Array>
+    try {
+      for await (const _chunk of stderr) {
+        // discard — drained purely to keep the pipe from filling
+      }
+    } catch {
+      // stderr error/close — nothing to do; stdout closure drives lifecycle
+    }
   }
 
   private async consume(): Promise<void> {
